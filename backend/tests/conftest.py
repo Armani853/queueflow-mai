@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,16 +13,23 @@ from app.main import app
 
 @pytest.fixture()
 def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    @event.listens_for(engine, "connect")
-    def enable_foreign_keys(dbapi_connection, _connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    test_database_url = os.getenv("TEST_DATABASE_URL")
+    if test_database_url:
+        if test_database_url.startswith("postgresql://"):
+            test_database_url = test_database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        engine = create_engine(test_database_url, pool_pre_ping=True)
+    else:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+
+        @event.listens_for(engine, "connect")
+        def enable_foreign_keys(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
 
     TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     Base.metadata.create_all(engine)

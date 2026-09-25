@@ -1,3 +1,4 @@
+$paramPort = 8000
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -8,8 +9,12 @@ if (-not (Test-Path -LiteralPath $python)) {
     throw "Не найдено виртуальное окружение .venv. Выполните установку по README."
 }
 
-if (Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue) {
-    throw "Порт 8000 уже занят. Закройте запущенный сервер или используйте его."
+$pilotPort = $paramPort
+while ($pilotPort -le ($paramPort + 10) -and (Get-NetTCPConnection -State Listen -LocalPort $pilotPort -ErrorAction SilentlyContinue)) {
+    $pilotPort++
+}
+if ($pilotPort -gt ($paramPort + 10)) {
+    throw "Не найден свободный порт в диапазоне $paramPort-$($paramPort + 10)."
 }
 
 if (-not (Test-Path -LiteralPath $frontendIndex)) {
@@ -37,13 +42,13 @@ try {
 
     Write-Host ""
     Write-Host "QueueFlow MAI запущен для локального пилота" -ForegroundColor Green
-    Write-Host "Ноутбук: http://127.0.0.1:8000"
-    Write-Host "Телефоны в той же Wi-Fi сети: http://${lanIp}:8000" -ForegroundColor Cyan
-    Write-Host "Health: http://${lanIp}:8000/api/health"
+    Write-Host "Ноутбук: http://127.0.0.1:${pilotPort}"
+    Write-Host "Телефоны в той же Wi-Fi сети: http://${lanIp}:${pilotPort}" -ForegroundColor Cyan
+    Write-Host "Health: http://${lanIp}:${pilotPort}/api/health"
     Write-Host "Не закрывайте это окно до конца пилота. Для остановки нажмите Ctrl+C."
     Write-Host ""
 
-    & $python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
+    & $python -m uvicorn app.main:app --host 0.0.0.0 --port $pilotPort --no-access-log
 } finally {
     Pop-Location
 }
