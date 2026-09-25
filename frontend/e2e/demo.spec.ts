@@ -5,18 +5,24 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await expect(page.getByRole('heading', { name: /Создайте очередь/ })).toBeVisible()
   await page.getByRole('button', { name: /Создать очередь/ }).click()
   await expect(page.getByRole('heading', { name: 'Можно приглашать студентов' })).toBeVisible()
-  await expect(page.getByText('Телефон не откроет localhost.')).toBeVisible()
 
   const studentHref = await page.getByRole('link', { name: /Открыть страницу/ }).getAttribute('href')
   const teacherHref = await page.getByRole('link', { name: /Перейти в панель/ }).getAttribute('href')
   expect(studentHref).toMatch(/^\/q\//)
   expect(teacherHref).toMatch(/^\/manage\//)
-  const qrOriginInput = page.getByRole('textbox', { name: 'Адрес компьютера для QR' })
-  await qrOriginInput.fill('http://192.168.1.42:8000')
-  await expect(page.locator('[data-qr-url]')).toHaveAttribute(
-    'data-qr-url',
-    `http://192.168.1.42:8000${studentHref}`,
-  )
+  const pageOrigin = new URL(page.url()).origin
+  if (['localhost', '127.0.0.1', '::1'].includes(new URL(pageOrigin).hostname)) {
+    await expect(page.getByText('Телефон не откроет localhost.')).toBeVisible()
+    const qrOriginInput = page.getByRole('textbox', { name: 'Адрес компьютера для QR' })
+    await qrOriginInput.fill('http://192.168.1.42:8000')
+    await expect(page.locator('[data-qr-url]')).toHaveAttribute(
+      'data-qr-url',
+      `http://192.168.1.42:8000${studentHref}`,
+    )
+  } else {
+    await expect(page.getByText('Телефон не откроет localhost.')).toHaveCount(0)
+    await expect(page.locator('[data-qr-url]')).toHaveAttribute('data-qr-url', `${pageOrigin}${studentHref}`)
+  }
 
   const studentPage = await context.newPage()
   await studentPage.goto(studentHref!)
