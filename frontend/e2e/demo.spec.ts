@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 test('complete QueueFlow demo scenario', async ({ page, request, context, browser }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: /Создайте очередь/ })).toBeVisible()
+  await page.getByLabel('Название очереди').fill(`[PILOT-CHECK] Playwright ${Date.now()}`)
   await page.getByRole('button', { name: /Создать очередь/ }).click()
   await expect(page.getByRole('heading', { name: 'Можно приглашать студентов' })).toBeVisible()
 
@@ -108,6 +109,8 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await teacherPage.screenshot({ path: 'test-results/teacher-dashboard.png', fullPage: true })
   await studentPage.reload()
   await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
+  const cleanup = await request.delete(`/api/manage/${teacherHref!.split('/').pop()}/session`)
+  expect(cleanup.status()).toBe(204)
 })
 
 test('student and teacher layouts do not overflow on mobile', async ({ browser, request }) => {
@@ -156,4 +159,6 @@ test('student and teacher layouts do not overflow on mobile', async ({ browser, 
     expect(box?.height).toBeGreaterThanOrEqual(40)
     await context.close()
   }
+  const cleanup = await request.delete(`/api/manage/${session.admin_token}/session`)
+  expect(cleanup.status()).toBe(204)
 })
