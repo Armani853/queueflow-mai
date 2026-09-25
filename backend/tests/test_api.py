@@ -203,3 +203,8 @@ def test_past_session_is_visible_but_closed_for_booking(client, session_payload)
 def test_render_postgres_url_uses_psycopg3_driver():
     configured = Settings(database_url="postgresql://user:pass@db/queueflow", _env_file=None)
     assert configured.sqlalchemy_database_url == "postgresql+psycopg://user:pass@db/queueflow"
+
+
+def test_release_debug_environment_is_safe():
+    configured = Settings(debug="release", _env_file=None)
+    assert configured.debug is False

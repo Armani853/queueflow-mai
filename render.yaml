@@ -19,5 +19,7 @@ services:
         value: ""
       - key: ENVIRONMENT
         value: production
+      - key: DEBUG
+        value: "false"
       - key: TIMEZONE
         value: Europe/Moscow

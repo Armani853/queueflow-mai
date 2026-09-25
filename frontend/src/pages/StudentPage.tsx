@@ -95,7 +95,7 @@ export function StudentPage() {
     }
   }
 
-  if (loading) return <Layout><div className="page-loading"><span className="spinner" /> Загружаем очередь…</div></Layout>
+  if (loading) return <Layout><div className="page-loading"><span className="spinner" /><strong>Сервис запускается</strong><span>На бесплатном сервере первая загрузка может занять до минуты.</span></div></Layout>
   if (!session) return <Layout><div className="not-found"><h1>Сессия не найдена</h1><p>{error || 'Проверьте ссылку у преподавателя.'}</p></div></Layout>
 
   if (confirmation) {

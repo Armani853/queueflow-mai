@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     app_name: str = "QueueFlow MAI"
     environment: str = "development"
+    debug: bool = False
     database_url: str = f"sqlite:///{(BASE_DIR / 'queueflow.db').as_posix()}"
     frontend_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
@@ -20,6 +22,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug(cls, value: object) -> object:
+        if isinstance(value, str) and value.lower() in {"release", "production", "prod"}:
+            return False
+        return value
 
     @property
     def allowed_origins(self) -> list[str]:

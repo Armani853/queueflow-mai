@@ -67,7 +67,7 @@ export function TeacherPage() {
     }
   }
 
-  if (loading) return <Layout><div className="page-loading"><span className="spinner" /> Открываем панель…</div></Layout>
+  if (loading) return <Layout><div className="page-loading"><span className="spinner" /><strong>Сервис запускается</strong><span>На бесплатном сервере первая загрузка может занять до минуты.</span></div></Layout>
   if (!session) return <Layout><div className="not-found"><ShieldCheck size={42} /><h1>Панель не найдена</h1><p>{error || 'Проверьте секретную ссылку.'}</p></div></Layout>
 
   const remaining = session.bookings.filter((booking) => ['BOOKED', 'WAITING', 'CURRENT'].includes(booking.status)).length

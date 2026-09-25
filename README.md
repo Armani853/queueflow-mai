@@ -178,6 +178,7 @@ E2E создаёт очередь через UI, записывает Арман
 | `CORS_ORIGINS` | разрешённые origins через запятую | localhost Vite |
 | `TOKEN_BYTES` | энтропия URL-safe токенов | `24` |
 | `ENVIRONMENT` | имя окружения | `development` |
+| `DEBUG` | подробные server errors (в production всегда `false`) | `false` |
 | `TIMEZONE` | часовой пояс бизнес-правил записи | `Europe/Moscow` |
 
 PostgreSQL example:

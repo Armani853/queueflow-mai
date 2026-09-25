@@ -24,7 +24,7 @@ app = FastAPI(
     title="QueueFlow MAI API",
     description="API динамической очереди на сдачу лабораторных работ",
     version="1.0.0",
-    debug=False,
+    debug=settings.debug,
 )
 
 app.add_middleware(
