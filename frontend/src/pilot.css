@@ -1,0 +1,32 @@
+.personal-link {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(36, 217, 248, .18);
+  border-radius: 12px;
+  background: rgba(36, 217, 248, .05);
+}
+
+.personal-link > strong,
+.personal-link > span {
+  display: block;
+}
+
+.personal-link > strong {
+  font-size: 13px;
+}
+
+.personal-link > span {
+  color: #7896ab;
+  font-size: 10px;
+  line-height: 1.5;
+  margin-top: 5px;
+}
+
+.personal-link .url-box {
+  margin: 12px 0 10px;
+  text-align: left;
+}
+
+.personal-link .button {
+  width: 100%;
+}
