@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CalendarDays, CheckCircle2, Clock3, MapPin, RefreshCw, TicketCheck, UserRound } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Clock3, MapPin, RefreshCw, TicketCheck, UserRound, X } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { CopyButton } from '../components/CopyButton'
@@ -24,6 +24,7 @@ export function StudentPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [updated, setUpdated] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -107,7 +108,8 @@ export function StudentPage() {
           <div className="confirmation-icon"><CheckCircle2 /></div>
           <span className="eyebrow">Место подтверждено</span>
           <h1>Вы записаны</h1>
-          <p>Сохраните эту страницу: очередь обновляется автоматически.</p>
+          <span className="queue-identity">Очередь {queueCode(session.public_token)}</span>
+          <p><strong>{confirmation.student_name}</strong><br />Сохраните эту страницу: очередь обновляется автоматически.</p>
           <div className="confirmation-time">{confirmation.scheduled_time?.slice(0, 5)}</div>
           <div className="confirmation-details">
             <div><CalendarDays /><span>Дата<strong>{dateFormatter.format(new Date(`${session.session_date}T00:00:00`))}</strong></span></div>
@@ -121,9 +123,10 @@ export function StudentPage() {
             <div className="url-box">{personalUrl}</div>
             <CopyButton value={personalUrl} label="Копировать личную ссылку" />
           </div>
-          <button className="button button-danger-text" disabled={submitting} onClick={cancel}>Отменить мою запись</button>
+          <button className="button button-danger-text" disabled={submitting} onClick={() => setConfirmCancel(true)}>Отменить мою запись</button>
         </section>
-        <section className="section-block"><div className="section-title"><div><span>Live</span><h2>Актуальная очередь</h2></div>{updated && <div className="update-toast"><RefreshCw size={14} /> Очередь обновилась</div>}</div><QueueList bookings={session.bookings} /></section>
+        <section className="section-block"><div className="section-title"><div><span>Live</span><h2>Актуальная очередь</h2><small className="live-caption"><span className="pulse-dot" /> Онлайн · обновляется автоматически</small></div>{updated && <div className="update-toast"><RefreshCw size={14} /> Очередь обновилась</div>}</div><QueueList bookings={session.bookings} /></section>
+        {confirmCancel && <div className="modal-backdrop"><div className="modal panel confirm-modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={() => setConfirmCancel(false)}><X /></button><h2>Отменить вашу запись?</h2><p>Ваше место освободится, а следующие студенты автоматически сдвинутся вперёд.</p><div className="button-row"><button className="button button-secondary" onClick={() => setConfirmCancel(false)}>Назад</button><button className="button button-danger-text" onClick={() => { setConfirmCancel(false); void cancel() }}>Отменить запись</button></div></div></div>}
       </Layout>
     )
   }
@@ -131,7 +134,7 @@ export function StudentPage() {
   return (
     <Layout wide>
       <section className="student-header">
-        <div><span className="eyebrow"><span className="pulse-dot" /> Страница студента · код {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p><small className="student-role-note">Это общая очередь группы. После записи ваше имя появится здесь и в панели преподавателя.</small></div>
+        <div><span className="eyebrow"><span className="pulse-dot" /> QueueFlow · Студент</span><span className="queue-identity">Очередь {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p><small className="student-role-note">Это общая очередь группы. После записи ваше имя появится здесь и в панели преподавателя.</small></div>
         <div className="session-facts"><div><CalendarDays /><span>{dateFormatter.format(new Date(`${session.session_date}T00:00:00`))}</span></div><div><MapPin /><span>{session.room}</span></div><div><Clock3 /><span>{session.slot_duration_minutes} мин + {session.buffer_minutes} мин буфер</span></div></div>
       </section>
       {error && <div className={error === 'Запись отменена' ? 'success-banner' : 'error-banner'}>{error}</div>}
@@ -148,7 +151,7 @@ export function StudentPage() {
           {selectedSlot === null ? <div className="form-placeholder"><Clock3 /><p>Сначала выберите свободный слот слева</p></div> : <><div className="selected-time"><span>Ваше время</span><strong>{session.slots[selectedSlot]?.time.slice(0, 5)}</strong></div><label className="field"><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={form.student_name} maxLength={120} onChange={(e) => setForm({ ...form, student_name: e.target.value })} required /></label><label className="field"><span>Группа</span><input placeholder="М8О-301Б-23" value={form.group_name} maxLength={40} onChange={(e) => setForm({ ...form, group_name: e.target.value })} required /></label><label className="field"><span>Лабораторная</span><input placeholder="ЛР 1.3" value={form.lab_name} maxLength={120} onChange={(e) => setForm({ ...form, lab_name: e.target.value })} required /></label><button className="button button-primary button-large" disabled={submitting}>{submitting ? <span className="spinner" /> : <TicketCheck size={18} />}{submitting ? 'Проверяем слот…' : 'Записаться'}</button></>}
         </form>
       </div>
-      <section className="section-block compact-queue"><div className="section-title"><div><span>Live</span><h2>Очередь сейчас</h2></div>{updated && <div className="update-toast"><RefreshCw size={14} /> Очередь обновилась</div>}</div><QueueList bookings={session.bookings} /></section>
+      <section className="section-block compact-queue"><div className="section-title"><div><span>Live</span><h2>Очередь сейчас</h2><small className="live-caption"><span className="pulse-dot" /> Онлайн · обновляется автоматически</small></div>{updated && <div className="update-toast"><RefreshCw size={14} /> Очередь обновилась</div>}</div><QueueList bookings={session.bookings} /></section>
     </Layout>
   )
 }

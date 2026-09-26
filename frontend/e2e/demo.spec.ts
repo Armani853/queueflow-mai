@@ -1,32 +1,43 @@
 import { expect, test } from '@playwright/test'
+import { mkdirSync } from 'node:fs'
+
+const screenshotDir = 'test-results/ux-audit'
+test.beforeAll(() => mkdirSync(screenshotDir, { recursive: true }))
 
 test('complete QueueFlow demo scenario', async ({ page, request, context, browser }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: /Создайте очередь/ })).toBeVisible()
-  await page.getByLabel('Название очереди').fill(`[PILOT-CHECK] Playwright ${Date.now()}`)
+  await page.getByLabel('Название очереди').fill(`[UX-AUDIT] Playwright ${Date.now()}`)
   await page.getByRole('button', { name: /Создать очередь/ }).click()
-  await expect(page.getByRole('heading', { name: 'Очередь создана — вы преподаватель' })).toBeVisible()
-
-  const studentHref = await page.getByRole('link', { name: /Проверить как студент/ }).getAttribute('href')
-  const teacherHref = await page.getByRole('link', { name: /Управлять очередью/ }).getAttribute('href')
-  expect(studentHref).toMatch(/^\/q\//)
-  expect(teacherHref).toMatch(/^\/manage\//)
+  await expect(page.getByText('Панель преподавателя', { exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  const teacherHref = new URL(page.url()).pathname
+  const publicUrl = await page.locator('.share-modal .url-box').innerText()
+  const studentHref = new URL(publicUrl).pathname
   const pageOrigin = new URL(page.url()).origin
   if (['localhost', '127.0.0.1', '::1'].includes(new URL(pageOrigin).hostname)) {
     await expect(page.getByText('Телефон не откроет localhost.')).toBeVisible()
     const qrOriginInput = page.getByRole('textbox', { name: 'Адрес компьютера для QR' })
     await qrOriginInput.fill('http://192.168.1.42:8000')
-    await expect(page.locator('[data-qr-url]')).toHaveAttribute(
+    await expect(page.locator('.share-modal [data-qr-url]')).toHaveAttribute(
       'data-qr-url',
       `http://192.168.1.42:8000${studentHref}`,
     )
   } else {
     await expect(page.getByText('Телефон не откроет localhost.')).toHaveCount(0)
-    await expect(page.locator('[data-qr-url]')).toHaveAttribute('data-qr-url', `${pageOrigin}${studentHref}`)
+    await expect(page.locator('.share-modal [data-qr-url]')).toHaveAttribute('data-qr-url', `${pageOrigin}${studentHref}`)
   }
   await page.goto('/')
-  await expect(page.getByText('Последняя очередь на этом устройстве')).toBeVisible()
+  await expect(page.getByText('У вас есть активная очередь')).toBeVisible()
   await expect(page.getByRole('link', { name: /Продолжить управление/ })).toHaveAttribute('href', teacherHref!)
+  await page.screenshot({ path: `${screenshotDir}/landing-active-queue.png`, fullPage: true })
+
+  const storageState = await context.storageState()
+  const restartedContext = await browser.newContext({ storageState })
+  const restartedPage = await restartedContext.newPage()
+  await restartedPage.goto('/')
+  await expect(restartedPage.getByRole('link', { name: /Продолжить управление/ })).toHaveAttribute('href', teacherHref!)
+  await restartedContext.close()
 
   const studentPage = await context.newPage()
   await studentPage.goto(studentHref!)
@@ -38,6 +49,7 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
   await expect(studentPage.locator('.confirmation-time')).toHaveText('12:00')
   await expect(studentPage.getByText('Сохраните личную ссылку')).toBeVisible()
+  await studentPage.screenshot({ path: `${screenshotDir}/student-booked.png`, fullPage: true })
   const personalUrl = await studentPage.locator('.personal-link .url-box').innerText()
   const cleanContext = await browser.newContext()
   const restoredPage = await cleanContext.newPage()
@@ -77,14 +89,21 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await expect(annaRow.getByText('12:24')).toBeVisible()
 
   const davidBody = await request.get(`/api/sessions/${publicToken}`)
-  expect((await davidBody.json()).admin_token).toBeUndefined()
+  const compactPublic = await davidBody.json()
+  expect(compactPublic.admin_token).toBeUndefined()
+  expect(compactPublic.bookings.find((booking: { student_name: string }) => booking.student_name === 'Давид Арутюнян').scheduled_time).toBe('12:12:00')
+  expect(compactPublic.bookings.some((booking: { student_name: string }) => booking.student_name === 'Мария Волкова')).toBe(false)
 
   const armanRow = teacherPage.locator('article', { hasText: 'Арман Саркисян' })
   await armanRow.getByRole('button', { name: 'Начать' }).click()
   await expect(teacherPage.getByText('Сейчас сдаёт')).toBeVisible()
   await expect(teacherPage.locator('.current-card').getByText('Арман Саркисян')).toBeVisible()
+  const currentPublic = await (await request.get(`/api/sessions/${publicToken}`)).json()
+  expect(currentPublic.bookings.find((booking: { student_name: string }) => booking.student_name === 'Арман Саркисян').status).toBe('CURRENT')
   await teacherPage.getByRole('button', { name: /Отметить «Сдал»/ }).click()
   await expect(armanRow.getByText('Сдал')).toBeVisible()
+  const passedPublic = await (await request.get(`/api/sessions/${publicToken}`)).json()
+  expect(passedPublic.bookings.find((booking: { student_name: string }) => booking.student_name === 'Арман Саркисян').status).toBe('PASSED')
 
   const reopenPassed = await request.patch(
     `/api/manage/${teacherHref!.split('/').pop()}/bookings/${await armanRow.getAttribute('data-booking-id')}`,
@@ -94,9 +113,13 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
 
   await davidRow.getByTitle('Опоздал').click()
   await expect(davidRow.getByText('Опаздывает')).toBeVisible()
+  const latePublic = await (await request.get(`/api/sessions/${publicToken}`)).json()
+  expect(latePublic.bookings.find((booking: { student_name: string }) => booking.student_name === 'Давид Арутюнян').status).toBe('LATE')
   await davidRow.getByRole('button', { name: 'Перенести' }).click()
   await expect(davidRow.getByText('Ожидает')).toBeVisible()
   await expect(davidRow.getByText('12:24')).toBeVisible()
+  const movedPublic = await (await request.get(`/api/sessions/${publicToken}`)).json()
+  expect(movedPublic.bookings.find((booking: { student_name: string }) => booking.student_name === 'Давид Арутюнян').scheduled_time).toBe('12:24:00')
 
   const racePayload = (name: string) => ({
     data: { student_name: name, group_name: 'М8О-399Б-23', lab_name: 'ЛР race', slot_index: 4 },
@@ -109,7 +132,7 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
 
   await teacherPage.reload()
   await expect(teacherPage.getByText(/Race (One|Two)/)).toBeVisible()
-  await teacherPage.screenshot({ path: 'test-results/teacher-dashboard.png', fullPage: true })
+  await teacherPage.screenshot({ path: `${screenshotDir}/teacher-with-bookings.png`, fullPage: true })
   await studentPage.reload()
   await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
   const cleanup = await request.delete(`/api/manage/${teacherHref!.split('/').pop()}/session`)
@@ -120,7 +143,7 @@ test('two devices share one live queue and roles are explicit', async ({ browser
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
   const createdResponse = await request.post('/api/sessions', {
     data: {
-      title: `[PILOT-CHECK] Live sync ${Date.now()}`,
+      title: `[UX-AUDIT] Live sync ${Date.now()}`,
       subject: 'Проверка общей очереди',
       session_date: tomorrow,
       start_time: '10:00',
@@ -136,16 +159,19 @@ test('two devices share one live queue and roles are explicit', async ({ browser
 
   const teacherContext = await browser.newContext()
   const studentContext = await browser.newContext()
+  const secondStudentContext = await browser.newContext()
   const teacherPage = await teacherContext.newPage()
   const studentPage = await studentContext.newPage()
+  const secondStudentPage = await secondStudentContext.newPage()
 
   await teacherPage.goto(`/manage/${session.admin_token}`)
-  await expect(teacherPage.getByText(/Панель преподавателя · код/)).toBeVisible()
+  await expect(teacherPage.getByText('Панель преподавателя', { exact: true })).toBeVisible()
   await expect(teacherPage.getByText('Вы управляете очередью')).toBeVisible()
   await expect(teacherPage.getByText('Очередь пока пуста')).toBeVisible()
+  await teacherPage.screenshot({ path: `${screenshotDir}/teacher-empty.png`, fullPage: true })
 
   await studentPage.goto(`/q/${session.public_token}`)
-  await expect(studentPage.getByText(/Страница студента · код/)).toBeVisible()
+  await expect(studentPage.getByText(/QueueFlow · Студент/)).toBeVisible()
   await studentPage.getByRole('button', { name: /10:00 Свободно/ }).click()
   await studentPage.getByPlaceholder('Иванов Иван Иванович').fill('Живой Тест Студент')
   await studentPage.getByPlaceholder('М8О-301Б-23').fill('М8О-301Б-23')
@@ -154,15 +180,29 @@ test('two devices share one live queue and roles are explicit', async ({ browser
   await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
 
   await expect(teacherPage.getByTitle('Живой Тест Студент')).toBeVisible()
-  const observerPage = await studentContext.newPage()
-  await observerPage.goto(`/q/${session.public_token}`)
-  await expect(observerPage.getByTitle('Живой Тест Студент')).toBeVisible()
+  await secondStudentPage.goto(`/q/${session.public_token}`)
+  await expect(secondStudentPage.getByTitle('Живой Тест Студент')).toBeVisible()
+  await secondStudentPage.getByRole('button', { name: /10:12 Свободно/ }).click()
+  await secondStudentPage.getByPlaceholder('Иванов Иван Иванович').fill('Второй Тест Студент')
+  await secondStudentPage.getByPlaceholder('М8О-301Б-23').fill('М8О-302Б-23')
+  await secondStudentPage.getByPlaceholder('ЛР 1.3').fill('ЛР sync 2')
+  await secondStudentPage.getByRole('button', { name: 'Записаться' }).click()
+  await expect(teacherPage.getByTitle('Второй Тест Студент')).toBeVisible()
+
+  const secondRow = teacherPage.locator('article', { hasText: 'Второй Тест Студент' })
+  await secondRow.getByRole('button', { name: 'Отменить' }).click()
+  await expect(teacherPage.getByRole('dialog').getByText(/Отменить запись Второй Тест Студент/)).toBeVisible()
+  await teacherPage.getByRole('dialog').getByRole('button', { name: 'Отменить запись' }).click()
+  await expect(teacherPage.getByTitle('Второй Тест Студент')).toHaveCount(0)
+  await expect(studentPage.getByTitle('Второй Тест Студент')).toHaveCount(0)
 
   await studentPage.getByRole('button', { name: 'Отменить мою запись' }).click()
+  await studentPage.getByRole('dialog').getByRole('button', { name: 'Отменить запись' }).click()
   await expect(teacherPage.getByTitle('Живой Тест Студент')).toHaveCount(0)
 
   await teacherContext.close()
   await studentContext.close()
+  await secondStudentContext.close()
   const cleanup = await request.delete(`/api/manage/${session.admin_token}/session`)
   expect(cleanup.status()).toBe(204)
 })
@@ -171,7 +211,7 @@ test('student and teacher layouts do not overflow on mobile', async ({ browser, 
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
   const response = await request.post('/api/sessions', {
     data: {
-      title: 'Мобильная проверка очень длинного названия очереди',
+      title: '[UX-AUDIT] Мобильная проверка очень длинного названия очереди',
       subject: 'Информационные технологии разработки',
       session_date: tomorrow,
       start_time: '10:00',
@@ -205,6 +245,14 @@ test('student and teacher layouts do not overflow on mobile', async ({ browser, 
       )
       expect(hasHorizontalOverflow).toBe(false)
     }
+    if (viewport.width === 390) {
+      await page.goto(`/manage/${session.admin_token}`)
+      await expect(page.getByRole('button', { name: 'Опоздал' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Отменить' })).toBeVisible()
+      await page.screenshot({ path: `${screenshotDir}/teacher-mobile.png`, fullPage: true })
+      await page.goto(`/q/${session.public_token}`)
+      await page.screenshot({ path: `${screenshotDir}/student-mobile.png`, fullPage: true })
+    }
     await page.goto(`/q/${session.public_token}`)
     await page.getByRole('button', { name: /10:12 Свободно/ }).click()
     const nameInput = page.getByPlaceholder('Иванов Иван Иванович')
@@ -215,4 +263,33 @@ test('student and teacher layouts do not overflow on mobile', async ({ browser, 
   }
   const cleanup = await request.delete(`/api/manage/${session.admin_token}/session`)
   expect(cleanup.status()).toBe(204)
+})
+
+test('creating a second queue is intentional and both remain in local history', async ({ page, request }) => {
+  const names = [`[UX-AUDIT] Первая ${Date.now()}`, `[UX-AUDIT] Вторая ${Date.now()}`]
+  const adminTokens: string[] = []
+  try {
+    await page.goto('/')
+    await page.getByLabel('Название очереди').fill(names[0])
+    await page.getByRole('button', { name: 'Создать очередь', exact: true }).click()
+    await expect(page.getByText('Панель преподавателя', { exact: true })).toBeVisible()
+    adminTokens.push(new URL(page.url()).pathname.split('/').pop()!)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Создать новую очередь' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText(/У вас уже есть/)).toBeVisible()
+    await expect(dialog.getByRole('link', { name: 'Вернуться к текущей' })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Создать новую' }).click()
+    await page.getByLabel('Название очереди').fill(names[1])
+    await page.getByRole('button', { name: 'Создать очередь', exact: true }).click()
+    await expect(page.getByText('Панель преподавателя', { exact: true })).toBeVisible()
+    adminTokens.push(new URL(page.url()).pathname.split('/').pop()!)
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: 'Ваши очереди' })).toBeVisible()
+    const history = page.locator('.recent-queues')
+    await expect(history.getByText(names[0])).toBeVisible()
+    await expect(history.getByText(names[1])).toBeVisible()
+  } finally {
+    for (const token of adminTokens) await request.delete(`/api/manage/${token}/session`)
+  }
 })

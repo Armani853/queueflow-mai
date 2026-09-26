@@ -1,37 +1,46 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlarmClock, CalendarDays, Check, ChevronDown, Clock3, Copy, Download, MapPin, PauseCircle, Play, QrCode, RefreshCw, Settings2, ShieldCheck, UsersRound, X } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { AlarmClock, CalendarDays, Check, Clock3, Download, MapPin, PauseCircle, Play, QrCode, RefreshCw, Settings2, ShieldCheck, UsersRound, X } from 'lucide-react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { Layout } from '../components/Layout'
 import { QueueList } from '../components/QueueList'
 import { QrShare } from '../components/QrShare'
 import { CopyButton } from '../components/CopyButton'
-import { queueCode, rememberTeacherSession } from '../lib/teacherSession'
+import { queueCode, rememberManagedSession } from '../lib/teacherSession'
 import type { Booking, BookingStatus, QueueSession } from '../types'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
 
 export function TeacherPage() {
   const { token = '' } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [session, setSession] = useState<QueueSession | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<number | null>(null)
-  const [showShare, setShowShare] = useState(false)
+  const [showShare, setShowShare] = useState(searchParams.get('onboarding') === '1')
   const [showSettings, setShowSettings] = useState(false)
   const [updated, setUpdated] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [newBooking, setNewBooking] = useState('')
+  const [cancelTarget, setCancelTarget] = useState<Booking | null>(null)
 
   const load = useCallback(async (quiet = false) => {
     try {
       const next = await api.manageSession(token)
-      rememberTeacherSession({ adminToken: token, publicToken: next.public_token, title: next.title })
+      rememberManagedSession(token, next)
       setSession((current) => {
         if (quiet && current && JSON.stringify(current.bookings) !== JSON.stringify(next.bookings)) {
           setUpdated(true)
+          const known = new Set(current.bookings.map((booking) => booking.id))
+          const added = next.bookings.find((booking) => !known.has(booking.id))
+          if (added) setNewBooking(`Новая запись: ${added.student_name} · ${added.scheduled_time?.slice(0, 5) ?? 'без времени'}`)
           window.setTimeout(() => setUpdated(false), 1800)
+          window.setTimeout(() => setNewBooking(''), 4500)
         }
         return next
       })
+      setLastUpdated(new Date())
       setError('')
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : 'Не удалось загрузить панель')
@@ -45,6 +54,13 @@ export function TeacherPage() {
     const interval = window.setInterval(() => void load(true), 2000)
     return () => window.clearInterval(interval)
   }, [load])
+
+  useEffect(() => {
+    if (searchParams.get('onboarding') === '1') {
+      setShowShare(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   async function changeStatus(booking: Booking, status: BookingStatus) {
     setBusyId(booking.id)
@@ -78,8 +94,8 @@ export function TeacherPage() {
   return (
     <Layout wide>
       <section className="dashboard-heading">
-        <div><span className="eyebrow"><ShieldCheck size={14} /> Панель преподавателя · код {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p></div>
-        <div className="dashboard-buttons"><a className="button button-secondary" href={`/api/manage/${token}/export.csv`} download><Download size={17} /> CSV</a><button className="button button-secondary" onClick={() => setShowShare(true)}><Copy size={17} /> Поделиться</button><button className="button button-secondary" onClick={() => setShowSettings(!showSettings)}><Settings2 size={17} /> Настройки</button></div>
+        <div><span className="eyebrow"><ShieldCheck size={14} /> Панель преподавателя</span><span className="queue-identity">Очередь {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p></div>
+        <div className="dashboard-buttons"><button className="button button-primary" onClick={() => setShowShare(true)}><QrCode size={17} /> Поделиться студентам</button><a className="button button-secondary" href={`/api/manage/${token}/export.csv`} download><Download size={17} /> CSV</a><button className="button button-secondary" onClick={() => setShowSettings(!showSettings)}><Settings2 size={17} /> Настройки</button></div>
       </section>
       <section className="role-guide panel">
         <div><strong>Вы управляете очередью</strong><span>Студентам отправьте эту ссылку. Все записи из неё появляются ниже автоматически.</span><code>{`${window.location.origin}/q/${session.public_token}`}</code></div>
@@ -105,9 +121,12 @@ export function TeacherPage() {
       </section>
       <section className="panel dashboard-queue">
         <div className="section-title"><div><span>Live-режим</span><h2>Очередь на сдачу</h2></div><div className="queue-meta">{updated && <span className="update-toast"><RefreshCw size={14} /> Обновлено</span>}<span>Шаг {session.slot_duration_minutes + session.buffer_minutes} мин</span></div></div>
-        <QueueList bookings={session.bookings} actions={(booking) => <BookingActions booking={booking} busy={busyId === booking.id} onStatus={(status) => changeStatus(booking, status)} onMove={() => move(booking)} />} />
+        <div className="live-line"><span><span className="pulse-dot" /> Онлайн · обновлено {lastUpdated ? 'только что' : 'при загрузке'}</span><small>Проверяем каждые 2 секунды — обновлять страницу не нужно.</small></div>
+        {newBooking && <div className="new-booking-note">{newBooking}</div>}
+        {session.bookings.length === 0 ? <div className="teacher-empty"><UsersRound size={38} /><h3>Очередь пока пуста</h3><p>Отправьте студентам эту ссылку:</p><code>{`${window.location.origin}/q/${session.public_token}`}</code><div className="button-row"><CopyButton value={`${window.location.origin}/q/${session.public_token}`} label="Копировать ссылку" /><button className="button button-secondary" onClick={() => setShowShare(true)}><QrCode size={17} /> Показать QR</button></div><small><span className="pulse-dot" /> Как только студент запишется, он автоматически появится здесь.</small></div> : <QueueList bookings={session.bookings} actions={(booking) => <BookingActions booking={booking} busy={busyId === booking.id} onStatus={(status) => status === 'CANCELLED' ? setCancelTarget(booking) : changeStatus(booking, status)} onMove={() => move(booking)} />} />}
       </section>
-      {showShare && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowShare(false)}><div className="modal panel" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setShowShare(false)}><X /></button><div className="panel-heading"><div className="icon-box"><QrCode /></div><div><span>Для студентов</span><h2>Ссылка на очередь</h2></div></div><QrShare publicPath={`/q/${session.public_token}`} size={180} /></div></div>}
+      {showShare && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowShare(false)}><div className="modal panel share-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setShowShare(false)}><X /></button><span className="eyebrow"><QrCode size={14} /> Студентам отправить</span><h2>Очередь {queueCode(session.public_token)}</h2><p>Все студенты по этой ссылке видят одну и ту же актуальную очередь.</p><div className="url-box">{`${window.location.origin}/q/${session.public_token}`}</div><QrShare publicPath={`/q/${session.public_token}`} size={180} /><div className="secret-reminder"><ShieldCheck size={16} /> Секретную ссылку /manage оставьте только себе.</div></div></div>}
+      {cancelTarget && <div className="modal-backdrop"><div className="modal panel confirm-modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={() => setCancelTarget(null)}><X /></button><h2>Отменить запись {cancelTarget.student_name}?</h2><p>После отмены следующие студенты будут автоматически сдвинуты вперёд.</p><div className="button-row"><button className="button button-secondary" onClick={() => setCancelTarget(null)}>Назад</button><button className="button button-danger-text" onClick={() => { const booking = cancelTarget; setCancelTarget(null); void changeStatus(booking, 'CANCELLED') }}>Отменить запись</button></div></div></div>}
     </Layout>
   )
 }
@@ -116,7 +135,7 @@ function BookingActions({ booking, busy, onStatus, onMove }: { booking: Booking;
   if (busy) return <span className="spinner" />
   if (booking.status === 'LATE') return <button className="mini-button move" title="В ближайший свободный слот" onClick={onMove}><RefreshCw /> Перенести</button>
   if (booking.status === 'PASSED') return <span className="completed-label"><Check /> Готово</span>
-  return <div className="action-group"><button className="mini-button start" title="Начать сдачу" onClick={() => onStatus('CURRENT')}><Play /> Начать</button><button className="icon-button late" title="Опоздал" onClick={() => onStatus('LATE')}><AlarmClock /></button><button className="icon-button cancel" title="Отменить" onClick={() => onStatus('CANCELLED')}><X /></button><button className="icon-button dropdown" title="Другие действия"><ChevronDown /></button></div>
+  return <div className="action-group"><button className="mini-button start" title="Начать сдачу" onClick={() => onStatus('CURRENT')}><Play /> Начать</button><button className="mini-button late" title="Опоздал" onClick={() => onStatus('LATE')}><AlarmClock /> Опоздал</button><button className="mini-button cancel" title="Отменить" onClick={() => onStatus('CANCELLED')}><X /> Отменить</button></div>
 }
 
 function SettingsPanel({ session, token, onSaved, onError }: { session: QueueSession; token: string; onSaved: () => void; onError: (value: string) => void }) {
