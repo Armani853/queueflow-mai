@@ -5,6 +5,8 @@ import { api, ApiError } from '../api/client'
 import { Layout } from '../components/Layout'
 import { QueueList } from '../components/QueueList'
 import { QrShare } from '../components/QrShare'
+import { CopyButton } from '../components/CopyButton'
+import { queueCode, rememberTeacherSession } from '../lib/teacherSession'
 import type { Booking, BookingStatus, QueueSession } from '../types'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -22,6 +24,7 @@ export function TeacherPage() {
   const load = useCallback(async (quiet = false) => {
     try {
       const next = await api.manageSession(token)
+      rememberTeacherSession({ adminToken: token, publicToken: next.public_token, title: next.title })
       setSession((current) => {
         if (quiet && current && JSON.stringify(current.bookings) !== JSON.stringify(next.bookings)) {
           setUpdated(true)
@@ -75,8 +78,12 @@ export function TeacherPage() {
   return (
     <Layout wide>
       <section className="dashboard-heading">
-        <div><span className="eyebrow"><ShieldCheck size={14} /> Панель преподавателя</span><h1>{session.title}</h1><p>{session.subject}</p></div>
+        <div><span className="eyebrow"><ShieldCheck size={14} /> Панель преподавателя · код {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p></div>
         <div className="dashboard-buttons"><a className="button button-secondary" href={`/api/manage/${token}/export.csv`} download><Download size={17} /> CSV</a><button className="button button-secondary" onClick={() => setShowShare(true)}><Copy size={17} /> Поделиться</button><button className="button button-secondary" onClick={() => setShowSettings(!showSettings)}><Settings2 size={17} /> Настройки</button></div>
+      </section>
+      <section className="role-guide panel">
+        <div><strong>Вы управляете очередью</strong><span>Студентам отправьте эту ссылку. Все записи из неё появляются ниже автоматически.</span><code>{`${window.location.origin}/q/${session.public_token}`}</code></div>
+        <CopyButton value={`${window.location.origin}/q/${session.public_token}`} label="Копировать ссылку студентам" />
       </section>
       <section className="stat-grid">
         <div className="stat-card"><CalendarDays /><span>Дата<strong>{dateFormatter.format(new Date(`${session.session_date}T00:00:00`))}</strong></span></div>

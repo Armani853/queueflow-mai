@@ -5,10 +5,10 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await expect(page.getByRole('heading', { name: /Создайте очередь/ })).toBeVisible()
   await page.getByLabel('Название очереди').fill(`[PILOT-CHECK] Playwright ${Date.now()}`)
   await page.getByRole('button', { name: /Создать очередь/ }).click()
-  await expect(page.getByRole('heading', { name: 'Можно приглашать студентов' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Очередь создана — вы преподаватель' })).toBeVisible()
 
-  const studentHref = await page.getByRole('link', { name: /Открыть страницу/ }).getAttribute('href')
-  const teacherHref = await page.getByRole('link', { name: /Перейти в панель/ }).getAttribute('href')
+  const studentHref = await page.getByRole('link', { name: /Проверить как студент/ }).getAttribute('href')
+  const teacherHref = await page.getByRole('link', { name: /Управлять очередью/ }).getAttribute('href')
   expect(studentHref).toMatch(/^\/q\//)
   expect(teacherHref).toMatch(/^\/manage\//)
   const pageOrigin = new URL(page.url()).origin
@@ -24,6 +24,9 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
     await expect(page.getByText('Телефон не откроет localhost.')).toHaveCount(0)
     await expect(page.locator('[data-qr-url]')).toHaveAttribute('data-qr-url', `${pageOrigin}${studentHref}`)
   }
+  await page.goto('/')
+  await expect(page.getByText('Последняя очередь на этом устройстве')).toBeVisible()
+  await expect(page.getByRole('link', { name: /Продолжить управление/ })).toHaveAttribute('href', teacherHref!)
 
   const studentPage = await context.newPage()
   await studentPage.goto(studentHref!)
@@ -110,6 +113,57 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await studentPage.reload()
   await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
   const cleanup = await request.delete(`/api/manage/${teacherHref!.split('/').pop()}/session`)
+  expect(cleanup.status()).toBe(204)
+})
+
+test('two devices share one live queue and roles are explicit', async ({ browser, request }) => {
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+  const createdResponse = await request.post('/api/sessions', {
+    data: {
+      title: `[PILOT-CHECK] Live sync ${Date.now()}`,
+      subject: 'Проверка общей очереди',
+      session_date: tomorrow,
+      start_time: '10:00',
+      end_time: '12:00',
+      room: 'ГУК Б-315',
+      slot_duration_minutes: 10,
+      buffer_minutes: 2,
+      max_students: 8,
+    },
+  })
+  expect(createdResponse.status()).toBe(201)
+  const session = await createdResponse.json()
+
+  const teacherContext = await browser.newContext()
+  const studentContext = await browser.newContext()
+  const teacherPage = await teacherContext.newPage()
+  const studentPage = await studentContext.newPage()
+
+  await teacherPage.goto(`/manage/${session.admin_token}`)
+  await expect(teacherPage.getByText(/Панель преподавателя · код/)).toBeVisible()
+  await expect(teacherPage.getByText('Вы управляете очередью')).toBeVisible()
+  await expect(teacherPage.getByText('Очередь пока пуста')).toBeVisible()
+
+  await studentPage.goto(`/q/${session.public_token}`)
+  await expect(studentPage.getByText(/Страница студента · код/)).toBeVisible()
+  await studentPage.getByRole('button', { name: /10:00 Свободно/ }).click()
+  await studentPage.getByPlaceholder('Иванов Иван Иванович').fill('Живой Тест Студент')
+  await studentPage.getByPlaceholder('М8О-301Б-23').fill('М8О-301Б-23')
+  await studentPage.getByPlaceholder('ЛР 1.3').fill('ЛР sync')
+  await studentPage.getByRole('button', { name: 'Записаться' }).click()
+  await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
+
+  await expect(teacherPage.getByTitle('Живой Тест Студент')).toBeVisible()
+  const observerPage = await studentContext.newPage()
+  await observerPage.goto(`/q/${session.public_token}`)
+  await expect(observerPage.getByTitle('Живой Тест Студент')).toBeVisible()
+
+  await studentPage.getByRole('button', { name: 'Отменить мою запись' }).click()
+  await expect(teacherPage.getByTitle('Живой Тест Студент')).toHaveCount(0)
+
+  await teacherContext.close()
+  await studentContext.close()
+  const cleanup = await request.delete(`/api/manage/${session.admin_token}/session`)
   expect(cleanup.status()).toBe(204)
 })
 

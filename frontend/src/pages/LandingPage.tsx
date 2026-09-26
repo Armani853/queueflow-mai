@@ -5,6 +5,7 @@ import { api, ApiError } from '../api/client'
 import { CopyButton } from '../components/CopyButton'
 import { Layout } from '../components/Layout'
 import { QrShare } from '../components/QrShare'
+import { readRememberedTeacherSession, rememberTeacherSession } from '../lib/teacherSession'
 import type { CreatedSession, SessionCreatePayload } from '../types'
 
 function tomorrow() {
@@ -30,6 +31,7 @@ export function LandingPage() {
   const [created, setCreated] = useState<CreatedSession | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [remembered] = useState(readRememberedTeacherSession)
   const origin = window.location.origin
   const publicUrl = useMemo(() => created ? `${origin}${created.public_path}` : '', [created, origin])
   const manageUrl = useMemo(() => created ? `${origin}${created.manage_path}` : '', [created, origin])
@@ -43,7 +45,9 @@ export function LandingPage() {
     setLoading(true)
     setError('')
     try {
-      setCreated(await api.createSession({ ...form, end_time: form.end_time || null }))
+      const next = await api.createSession({ ...form, end_time: form.end_time || null })
+      rememberTeacherSession({ adminToken: next.admin_token, publicToken: next.public_token, title: next.title })
+      setCreated(next)
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : 'Не удалось создать очередь')
     } finally {
@@ -56,14 +60,14 @@ export function LandingPage() {
       <Layout>
         <section className="success-hero">
           <span className="eyebrow"><Sparkles size={15} /> Очередь готова</span>
-          <h1>Можно приглашать студентов</h1>
-          <p>Сохраните ссылку управления отдельно. Студентам отправляйте только публичную ссылку.</p>
+          <h1>Очередь создана — вы преподаватель</h1>
+          <p>Откройте панель преподавателя на этом ноутбуке. Студентам отправляйте только публичную ссылку или QR.</p>
         </section>
         <div className="created-grid">
           <section className="panel link-panel">
             <div className="panel-heading"><div className="icon-box"><Link2 /></div><div><span>Для студентов</span><h2>Публичная ссылка</h2></div></div>
             <div className="url-box">{publicUrl}</div>
-            <div className="button-row"><CopyButton value={publicUrl} /><Link className="button button-primary" to={created.public_path}>Открыть страницу <ArrowRight size={17} /></Link></div>
+            <div className="button-row"><CopyButton value={publicUrl} /><Link className="button button-primary" to={created.public_path}>Проверить как студент <ArrowRight size={17} /></Link></div>
           </section>
           <section className="panel qr-panel">
             <div className="panel-heading"><div className="icon-box"><QrCode /></div><div><span>Быстрый вход</span><h2>QR-код</h2></div></div>
@@ -73,7 +77,7 @@ export function LandingPage() {
             <div className="panel-heading"><div className="icon-box icon-purple"><ShieldCheck /></div><div><span>Только для вас</span><h2>Ссылка преподавателя</h2></div></div>
             <div className="url-box secret-url">{manageUrl}</div>
             <div className="notice">Не отправляйте эту ссылку в общий чат: она даёт доступ к управлению.</div>
-            <div className="button-row"><CopyButton value={manageUrl} /><Link className="button button-primary" to={created.manage_path}>Перейти в панель <ArrowRight size={17} /></Link></div>
+            <div className="button-row"><CopyButton value={manageUrl} /><Link className="button button-primary" to={created.manage_path}>Управлять очередью <ArrowRight size={17} /></Link></div>
           </section>
         </div>
       </Layout>
@@ -82,11 +86,16 @@ export function LandingPage() {
 
   return (
     <Layout wide>
+      {remembered && <section className="resume-banner panel">
+        <div><span className="eyebrow"><ShieldCheck size={14} /> Последняя очередь на этом устройстве</span><strong>{remembered.title}</strong><small>Откройте секретную панель преподавателя. Главная страница предназначена для создания новой очереди.</small></div>
+        <Link className="button button-primary" to={`/manage/${remembered.adminToken}`}>Продолжить управление <ArrowRight size={17} /></Link>
+      </section>}
       <section className="landing-grid">
         <div className="hero-copy">
           <span className="eyebrow"><Sparkles size={15} /> Очередь без хаоса в чате</span>
           <h1>Создайте очередь на сдачу <span>за минуту</span></h1>
           <p>Студенты сами выберут свободное время, а QueueFlow сохранит порядок и пересчитает расписание при изменениях.</p>
+          <div className="role-explainer"><strong>Как это работает</strong><span>1. Преподаватель создаёт очередь и остаётся в секретной панели.</span><span>2. Студенты открывают QR и видят одну общую очередь.</span></div>
           <div className="feature-strip">
             <div><CalendarDays /><strong>Точные слоты</strong><span>Время видно всем</span></div>
             <div><UsersRound /><strong>Live-очередь</strong><span>Текущий и следующий</span></div>

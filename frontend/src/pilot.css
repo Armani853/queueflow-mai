@@ -30,3 +30,90 @@
 .personal-link .button {
   width: 100%;
 }
+
+.resume-banner,
+.role-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 22px;
+}
+
+.resume-banner {
+  margin-top: 18px;
+  border-color: rgba(52, 230, 173, .28);
+}
+
+.resume-banner > div,
+.role-guide > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.resume-banner strong,
+.role-guide strong {
+  color: #e8f7ff;
+  font-size: 14px;
+}
+
+.resume-banner small,
+.role-guide span,
+.student-role-note {
+  color: #7896ab;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.role-explainer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 22px;
+  padding: 15px;
+  border: 1px solid rgba(36, 217, 248, .16);
+  border-radius: 12px;
+  background: rgba(36, 217, 248, .04);
+  color: #88a5ba;
+  font-size: 11px;
+}
+
+.role-explainer strong {
+  color: #dcecf6;
+  font-size: 12px;
+}
+
+.role-guide {
+  margin: 18px 0;
+  border-color: rgba(36, 217, 248, .24);
+}
+
+.role-guide code {
+  max-width: 720px;
+  overflow: hidden;
+  color: #7fdcf0;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-role-note {
+  display: block;
+  max-width: 560px;
+  margin-top: 10px;
+}
+
+@media (max-width: 650px) {
+  .resume-banner,
+  .role-guide {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .resume-banner .button,
+  .role-guide .button {
+    width: 100%;
+  }
+}

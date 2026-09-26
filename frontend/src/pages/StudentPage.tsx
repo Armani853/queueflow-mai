@@ -6,6 +6,7 @@ import { CopyButton } from '../components/CopyButton'
 import { Layout } from '../components/Layout'
 import { QueueList } from '../components/QueueList'
 import type { Booking, QueueSession } from '../types'
+import { queueCode } from '../lib/teacherSession'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -130,7 +131,7 @@ export function StudentPage() {
   return (
     <Layout wide>
       <section className="student-header">
-        <div><span className="eyebrow"><span className="pulse-dot" /> Запись открыта</span><h1>{session.title}</h1><p>{session.subject}</p></div>
+        <div><span className="eyebrow"><span className="pulse-dot" /> Страница студента · код {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p><small className="student-role-note">Это общая очередь группы. После записи ваше имя появится здесь и в панели преподавателя.</small></div>
         <div className="session-facts"><div><CalendarDays /><span>{dateFormatter.format(new Date(`${session.session_date}T00:00:00`))}</span></div><div><MapPin /><span>{session.room}</span></div><div><Clock3 /><span>{session.slot_duration_minutes} мин + {session.buffer_minutes} мин буфер</span></div></div>
       </section>
       {error && <div className={error === 'Запись отменена' ? 'success-banner' : 'error-banner'}>{error}</div>}
