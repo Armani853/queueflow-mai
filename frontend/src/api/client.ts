@@ -11,25 +11,33 @@ class ApiError extends Error {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 70_000)
   try {
     response = await fetch(path, {
       ...options,
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json', ...options?.headers },
     })
   } catch {
-    throw new ApiError('Сервер временно недоступен. Обновите страницу и попробуйте ещё раз.', 0)
+    throw new ApiError('Не удалось подключиться к серверу. Повторите попытку.', 0)
+  } finally {
+    window.clearTimeout(timeout)
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: 'Неизвестная ошибка' }))
-    throw new ApiError(body.detail ?? 'Не удалось выполнить запрос', response.status)
+    const message = response.status >= 500
+      ? 'На сервере произошла ошибка. Попробуйте ещё раз.'
+      : body.detail ?? 'Не удалось выполнить запрос'
+    throw new ApiError(message, response.status)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
 export const api = {
-  createSession: (payload: SessionCreatePayload) =>
-    request<CreatedSession>('/api/sessions', { method: 'POST', body: JSON.stringify(payload) }),
+  createSession: (payload: SessionCreatePayload, idempotencyKey: string) =>
+    request<CreatedSession>('/api/sessions', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload) }),
   publicSession: (token: string) => request<QueueSession>(`/api/sessions/${token}`),
   manageSession: (token: string) => request<QueueSession>(`/api/manage/${token}`),
   createBooking: (token: string, payload: { student_name: string; group_name: string; lab_name: string; slot_index: number }) =>

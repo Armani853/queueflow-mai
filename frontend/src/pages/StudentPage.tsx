@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CalendarDays, CheckCircle2, Clock3, MapPin, RefreshCw, TicketCheck, UserRound, X } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
@@ -25,6 +25,8 @@ export function StudentPage() {
   const [error, setError] = useState('')
   const [updated, setUpdated] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [networkError, setNetworkError] = useState(false)
+  const submittingRef = useRef(false)
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -36,9 +38,11 @@ export function StudentPage() {
         }
         return next
       })
-      setError('')
+      setNetworkError(false)
+      if (!quiet) setError('')
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : 'Не удалось загрузить очередь')
+      setNetworkError(reason instanceof ApiError && reason.status === 0)
     } finally {
       setLoading(false)
     }
@@ -61,7 +65,8 @@ export function StudentPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (selectedSlot === null || submitting) return
+    if (selectedSlot === null || submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     setError('')
     try {
@@ -73,9 +78,12 @@ export function StudentPage() {
       }
       await load()
     } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : 'Не удалось записаться')
-      await load()
+      const message = reason instanceof ApiError ? reason.message : 'Не удалось записаться'
+      if (reason instanceof ApiError && reason.status === 409) setSelectedSlot(null)
+      await load(true)
+      setError(message)
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -98,7 +106,7 @@ export function StudentPage() {
   }
 
   if (loading) return <Layout><div className="page-loading"><span className="spinner" /><strong>Сервис запускается</strong><span>На бесплатном сервере первая загрузка может занять до минуты.</span></div></Layout>
-  if (!session) return <Layout><div className="not-found"><h1>Сессия не найдена</h1><p>{error || 'Проверьте ссылку у преподавателя.'}</p></div></Layout>
+  if (!session) return <Layout><div className="not-found"><h1>{networkError ? 'Сервер пока не ответил' : 'Эта очередь не найдена или больше недоступна'}</h1><p>{networkError ? 'Сервис может запускаться до минуты. Повторите попытку.' : error || 'Проверьте ссылку у преподавателя.'}</p>{networkError && <button className="button button-primary" onClick={() => { setLoading(true); void load() }}><RefreshCw size={17} /> Повторить</button>}</div></Layout>
 
   if (confirmation) {
     const personalUrl = `${window.location.origin}/q/${token}?booking=${encodeURIComponent(bookingToken)}`
@@ -137,8 +145,8 @@ export function StudentPage() {
         <div><span className="eyebrow"><span className="pulse-dot" /> QueueFlow · Студент</span><span className="queue-identity">Очередь {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p><small className="student-role-note">Это общая очередь группы. После записи ваше имя появится здесь и в панели преподавателя.</small></div>
         <div className="session-facts"><div><CalendarDays /><span>{dateFormatter.format(new Date(`${session.session_date}T00:00:00`))}</span></div><div><MapPin /><span>{session.room}</span></div><div><Clock3 /><span>{session.slot_duration_minutes} мин + {session.buffer_minutes} мин буфер</span></div></div>
       </section>
-      {error && <div className={error === 'Запись отменена' ? 'success-banner' : 'error-banner'}>{error}</div>}
-      <div className="student-grid">
+      {error === 'Запись отменена' && <div className="success-banner">{error}</div>}
+      {!session.is_active ? <><section className="panel closed-state"><CheckCircle2 /><span className="eyebrow">Очередь {queueCode(session.public_token)}</span><h2>Эта очередь закрыта</h2><p>Преподаватель завершил запись. Итоговый список остаётся доступен ниже.</p></section><section className="section-block compact-queue"><div className="section-title"><div><span>Итоги</span><h2>Очередь</h2></div></div><QueueList bookings={session.bookings} /></section></> : <><div className="student-grid">
         <section className="panel slots-panel">
           <div className="section-title"><div><span>Шаг 1</span><h2>Выберите свободное время</h2></div><span className="availability">{session.slots.filter((slot) => slot.available).length} свободно</span></div>
           <div className="slots-grid">
@@ -148,10 +156,12 @@ export function StudentPage() {
         </section>
         <form className="panel booking-form" onSubmit={submit}>
           <div className="section-title"><div><span>Шаг 2</span><h2>Подтвердите запись</h2></div></div>
-          {selectedSlot === null ? <div className="form-placeholder"><Clock3 /><p>Сначала выберите свободный слот слева</p></div> : <><div className="selected-time"><span>Ваше время</span><strong>{session.slots[selectedSlot]?.time.slice(0, 5)}</strong></div><label className="field"><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={form.student_name} maxLength={120} onChange={(e) => setForm({ ...form, student_name: e.target.value })} required /></label><label className="field"><span>Группа</span><input placeholder="М8О-301Б-23" value={form.group_name} maxLength={40} onChange={(e) => setForm({ ...form, group_name: e.target.value })} required /></label><label className="field"><span>Лабораторная</span><input placeholder="ЛР 1.3" value={form.lab_name} maxLength={120} onChange={(e) => setForm({ ...form, lab_name: e.target.value })} required /></label><button className="button button-primary button-large" disabled={submitting}>{submitting ? <span className="spinner" /> : <TicketCheck size={18} />}{submitting ? 'Проверяем слот…' : 'Записаться'}</button></>}
+          {error && error !== 'Запись отменена' && <div className="error-banner" role="alert">{error}</div>}
+          {selectedSlot === null ? <div className="form-placeholder"><Clock3 /><p>Сначала выберите свободный слот слева</p></div> : <><div className="selected-time"><span>Ваше время</span><strong>{session.slots[selectedSlot]?.time.slice(0, 5)}</strong></div><label className="field"><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={form.student_name} maxLength={120} onChange={(e) => setForm({ ...form, student_name: e.target.value })} required /></label><label className="field"><span>Группа</span><input placeholder="М8О-301Б-23" value={form.group_name} maxLength={40} onChange={(e) => setForm({ ...form, group_name: e.target.value })} required /></label><label className="field"><span>Лабораторная</span><input placeholder="ЛР 1.3" value={form.lab_name} maxLength={120} onChange={(e) => setForm({ ...form, lab_name: e.target.value })} required /></label><button className="button button-primary button-large" disabled={submitting}>{submitting ? <span className="spinner" /> : <TicketCheck size={18} />}{submitting ? 'Записываем…' : 'Записаться'}</button></>}
         </form>
       </div>
       <section className="section-block compact-queue"><div className="section-title"><div><span>Live</span><h2>Очередь сейчас</h2><small className="live-caption"><span className="pulse-dot" /> Онлайн · обновляется автоматически</small></div>{updated && <div className="update-toast"><RefreshCw size={14} /> Очередь обновилась</div>}</div><QueueList bookings={session.bookings} /></section>
+      </>}
     </Layout>
   )
 }

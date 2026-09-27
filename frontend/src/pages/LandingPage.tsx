@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, CalendarDays, Clock3, Link2, MapPin, RefreshCw, ShieldCheck, Sparkles, UsersRound, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
@@ -7,7 +7,11 @@ import { Layout } from '../components/Layout'
 import { forgetTeacherSession, queueCode, readRememberedTeacherSessions, rememberTeacherSession, type RememberedTeacherSession } from '../lib/teacherSession'
 import type { QueueSession, SessionCreatePayload } from '../types'
 
-function tomorrow() { const date = new Date(); date.setDate(date.getDate() + 1); return date.toISOString().slice(0, 10) }
+function localDateValue(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+}
+function tomorrow() { const date = new Date(); date.setDate(date.getDate() + 1); return localDateValue(date) }
 const initialForm: SessionCreatePayload = { title: 'Сдача лабораторных', subject: 'Численные методы', session_date: tomorrow(), start_time: '12:00', end_time: '14:00', room: 'ГУК Б-315', slot_duration_minutes: 10, buffer_minutes: 2, max_students: 10 }
 type SavedQueue = RememberedTeacherSession & { session?: QueueSession; networkError?: boolean }
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' })
@@ -22,6 +26,9 @@ export function LandingPage() {
   const [recovery, setRecovery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const submittingRef = useRef(false)
+  const requestIdRef = useRef('')
+  const today = localDateValue()
 
   async function verifySaved() {
     setChecking(true)
@@ -35,7 +42,7 @@ export function LandingPage() {
     }))
     const live = checked.filter((item): item is SavedQueue => item !== null)
     setQueues(live)
-    setShowCreate(live.length === 0)
+    setShowCreate(!live.some((item) => item.networkError || item.session?.is_active !== false))
     setChecking(false)
   }
 
@@ -44,13 +51,33 @@ export function LandingPage() {
   function setField<K extends keyof SessionCreatePayload>(key: K, value: SessionCreatePayload[K]) { setForm((current) => ({ ...current, [key]: value })) }
 
   async function submit(event: React.FormEvent) {
-    event.preventDefault(); setLoading(true); setError('')
+    event.preventDefault()
+    if (submittingRef.current) return
+    const now = new Date()
+    if (form.session_date < localDateValue(now)) {
+      setError('Нельзя создать очередь на прошедшую дату.')
+      return
+    }
+    if (form.session_date === localDateValue(now)) {
+      const [startHour, startMinute] = form.start_time.split(':').map(Number)
+      const [endHour, endMinute] = (form.end_time || form.start_time).split(':').map(Number)
+      const derivedEnd = form.end_time
+        ? endHour * 60 + endMinute
+        : startHour * 60 + startMinute + (form.max_students - 1) * (form.slot_duration_minutes + form.buffer_minutes)
+      if (derivedEnd <= now.getHours() * 60 + now.getMinutes()) {
+        setError('Нельзя создать очередь на прошедшую дату.')
+        return
+      }
+    }
+    submittingRef.current = true
+    requestIdRef.current ||= crypto.randomUUID()
+    setLoading(true); setError('')
     try {
-      const next = await api.createSession({ ...form, end_time: form.end_time || null })
+      const next = await api.createSession({ ...form, end_time: form.end_time || null }, requestIdRef.current)
       rememberTeacherSession({ adminToken: next.admin_token, publicToken: next.public_token, title: next.title, subject: next.subject, sessionDate: next.session_date, room: next.room, maxStudents: next.max_students })
       navigate(`${next.manage_path}?onboarding=1`, { replace: true })
     } catch (reason) { setError(reason instanceof ApiError ? reason.message : 'Не удалось создать очередь') }
-    finally { setLoading(false) }
+    finally { submittingRef.current = false; setLoading(false) }
   }
 
   function requestNewQueue() {
@@ -68,7 +95,7 @@ export function LandingPage() {
     } catch { setError('Вставьте полную секретную ссылку вида /manage/… с этого сайта.') }
   }
 
-  const active = queues[0]
+  const active = queues.find((item) => item.networkError || item.session?.is_active !== false)
   return (
     <Layout wide>
       {!checking && active && <section className="active-queue-card panel" data-testid="active-queue">
@@ -76,15 +103,15 @@ export function LandingPage() {
         <div className="active-actions"><Link className="button button-primary" to={`/manage/${active.adminToken}`}>Продолжить управление <ArrowRight size={17} /></Link><CopyButton value={`${window.location.origin}/q/${active.publicToken}`} label="Ссылка для студентов" /><button className="button button-secondary" onClick={requestNewQueue}>Создать новую очередь</button>{active.networkError && <button className="button button-secondary" onClick={() => void verifySaved()}><RefreshCw size={16} /> Повторить</button>}</div>
       </section>}
 
-      {queues.length > 1 && <section className="panel recent-queues"><div className="section-title"><div><span>На этом устройстве</span><h2>Ваши очереди</h2></div></div>{queues.map((item, index) => <div className="recent-row" key={item.adminToken}><div><strong>{index === 0 ? '●' : '○'} {item.session?.title ?? item.title}</strong><span>{queueCode(item.publicToken)} · {item.session?.room || item.room || 'аудитория не указана'}</span></div><Link className="button button-secondary" to={`/manage/${item.adminToken}`}>Управлять</Link></div>)}</section>}
+      {queues.length > 0 && <section className="panel recent-queues"><div className="section-title"><div><span>На этом устройстве</span><h2>Ваши очереди</h2></div></div>{queues.map((item) => { const isActive = item.networkError || item.session?.is_active !== false; return <div className={`recent-row ${isActive ? '' : 'recent-row-closed'}`} key={item.adminToken}><div><strong>{isActive ? '●' : '○'} {item.session?.title ?? item.title}</strong><span>{queueCode(item.publicToken)} · {item.session?.room || item.room || 'аудитория не указана'} · {isActive ? 'активна' : 'завершена'}</span></div><Link className="button button-secondary" to={`/manage/${item.adminToken}`}>{isActive ? 'Управлять' : 'Посмотреть итоги'}</Link></div> })}</section>}
 
       {(!active || !showCreate) && <section className="landing-intro"><div><span className="eyebrow"><Sparkles size={15} /> Очередь без хаоса в чате</span><h1>{active ? 'Одна очередь — две понятные ссылки' : 'Создайте очередь на сдачу за минуту'}</h1><p>Секретная ссылка остаётся у преподавателя, публичная ссылка и QR отправляются студентам.</p></div><div className="how-grid"><span><b>1</b>Преподаватель создаёт очередь</span><span><b>2</b>Отправляет public link или QR</span><span><b>3</b>Студенты записываются</span><span><b>4</b>Записи появляются автоматически</span><span><b>5</b>Преподаватель управляет сдачей</span></div>{active && <button className="button button-secondary" onClick={requestNewQueue}>Создать ещё одну очередь</button>}</section>}
 
       {(showCreate || (!checking && !active)) && <section className="landing-grid">
         <div className="hero-copy"><span className="eyebrow"><Sparkles size={15} /> Новое окно сдачи</span><h1>Настройте <span>расписание</span></h1><p>После создания откроется панель преподавателя. Мы сохраним её на этом устройстве.</p><div className="feature-strip"><div><CalendarDays /><strong>Точные слоты</strong><span>Время видно всем</span></div><div><UsersRound /><strong>Live-очередь</strong><span>Обновляется сама</span></div><div><Clock3 /><strong>Автосдвиг</strong><span>После отмены</span></div></div></div>
-        <form className="panel create-form" onSubmit={submit}><div className="form-header"><div><span>Преподаватель</span><h2>Создать очередь</h2></div>{active && <button type="button" className="modal-close inline-close" onClick={() => setShowCreate(false)}><X /></button>}</div><div className="form-grid">
-          <label className="field field-wide"><span>Название очереди</span><input value={form.title} maxLength={120} onChange={(e) => setField('title', e.target.value)} required /></label><label className="field field-wide"><span>Предмет</span><input value={form.subject} maxLength={120} onChange={(e) => setField('subject', e.target.value)} required /></label><label className="field"><span>Дата</span><input type="date" value={form.session_date} onChange={(e) => setField('session_date', e.target.value)} required /></label><label className="field"><span>Начало</span><input type="time" value={form.start_time} onChange={(e) => setField('start_time', e.target.value)} required /></label><label className="field"><span>Окончание</span><input type="time" value={form.end_time ?? ''} onChange={(e) => setField('end_time', e.target.value)} /></label><label className="field"><span>Аудитория</span><input value={form.room} maxLength={80} onChange={(e) => setField('room', e.target.value)} required /></label><label className="field"><span>Слот, минут</span><input type="number" min="1" max="180" value={form.slot_duration_minutes} onChange={(e) => setField('slot_duration_minutes', Number(e.target.value))} required /></label><label className="field"><span>Буфер, минут</span><input type="number" min="0" max="60" value={form.buffer_minutes} onChange={(e) => setField('buffer_minutes', Number(e.target.value))} required /></label><label className="field field-wide"><span>Максимум студентов</span><input type="number" min="1" max="200" value={form.max_students} onChange={(e) => setField('max_students', Number(e.target.value))} required /></label>
-        </div>{error && <div className="error-banner">{error}</div>}<button className="button button-primary button-large" disabled={loading}>{loading ? <span className="spinner" /> : <Sparkles size={18} />}{loading ? 'Создаём…' : 'Создать очередь'}<ArrowRight size={18} /></button><p className="form-foot"><ShieldCheck size={14} /> Секретная ссылка управления сохранится только на этом устройстве.</p></form>
+        <form className="panel create-form" onSubmit={submit} aria-busy={loading}><div className="form-header"><div><span>Преподаватель</span><h2>Создать очередь</h2></div>{active && <button type="button" className="modal-close inline-close" onClick={() => setShowCreate(false)}><X /></button>}</div><fieldset className="form-fields" disabled={loading}><div className="form-grid">
+          <label className="field field-wide"><span>Название очереди</span><input value={form.title} maxLength={120} onChange={(e) => setField('title', e.target.value)} required /></label><label className="field field-wide"><span>Предмет</span><input value={form.subject} maxLength={120} onChange={(e) => setField('subject', e.target.value)} required /></label><label className="field"><span>Дата</span><input type="date" min={today} value={form.session_date} onChange={(e) => setField('session_date', e.target.value)} required /></label><label className="field"><span>Начало</span><input type="time" value={form.start_time} onChange={(e) => setField('start_time', e.target.value)} required /></label><label className="field"><span>Окончание</span><input type="time" value={form.end_time ?? ''} onChange={(e) => setField('end_time', e.target.value)} /></label><label className="field"><span>Аудитория</span><input value={form.room} maxLength={80} onChange={(e) => setField('room', e.target.value)} required /></label><label className="field"><span>Слот, минут</span><input type="number" min="1" max="180" value={form.slot_duration_minutes} onChange={(e) => setField('slot_duration_minutes', Number(e.target.value))} required /></label><label className="field"><span>Буфер, минут</span><input type="number" min="0" max="60" value={form.buffer_minutes} onChange={(e) => setField('buffer_minutes', Number(e.target.value))} required /></label><label className="field field-wide"><span>Максимум студентов</span><input type="number" min="1" max="200" value={form.max_students} onChange={(e) => setField('max_students', Number(e.target.value))} required /></label>
+        </div>{error && <div className="error-banner" role="alert">{error}</div>}<button className="button button-primary button-large" disabled={loading}>{loading ? <span className="spinner" /> : <Sparkles size={18} />}{loading ? 'Создаём очередь…' : 'Создать очередь'}{!loading && <ArrowRight size={18} />}</button>{loading && <div className="cold-start-note">Сервис запускается… Это может занять до минуты.</div>}</fieldset><p className="form-foot"><ShieldCheck size={14} /> Секретная ссылка управления сохранится только на этом устройстве.</p></form>
       </section>}
 
       <form className="recovery-box" onSubmit={openRecovery}><div><Link2 size={18} /><span><strong>У меня есть ссылка преподавателя</strong><small>Вставьте сохранённую секретную ссылку, чтобы вернуть панель на это устройство.</small></span></div><input aria-label="Ссылка преподавателя" value={recovery} onChange={(event) => setRecovery(event.target.value)} placeholder={`${window.location.origin}/manage/…`} /><button className="button button-secondary"><ShieldCheck size={16} /> Открыть</button></form>

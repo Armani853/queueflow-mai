@@ -247,8 +247,15 @@ test('student and teacher layouts do not overflow on mobile', async ({ browser, 
     }
     if (viewport.width === 390) {
       await page.goto(`/manage/${session.admin_token}`)
-      await expect(page.getByRole('button', { name: 'Опоздал' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Отменить' })).toBeVisible()
+      for (const name of ['Начать', 'Опоздал', 'Отменить', 'Завершить очередь']) {
+        const action = page.getByRole('button', { name, exact: true })
+        await expect(action).toBeVisible()
+        expect((await action.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+      }
+      await page.getByRole('button', { name: 'Начать', exact: true }).click()
+      const passedAction = page.getByRole('button', { name: /Отметить «Сдал»/ })
+      await expect(passedAction).toBeVisible()
+      expect((await passedAction.boundingBox())?.height).toBeGreaterThanOrEqual(44)
       await page.screenshot({ path: `${screenshotDir}/teacher-mobile.png`, fullPage: true })
       await page.goto(`/q/${session.public_token}`)
       await page.screenshot({ path: `${screenshotDir}/student-mobile.png`, fullPage: true })

@@ -27,6 +27,7 @@ class DefenseSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     public_token: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     admin_token: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
     title: Mapped[str] = mapped_column(String(120))
     subject: Mapped[str] = mapped_column(String(120))
     session_date: Mapped[date] = mapped_column(Date)
@@ -44,4 +45,3 @@ class DefenseSession(Base):
     bookings = relationship(
         "Booking", back_populates="session", cascade="all, delete-orphan", passive_deletes=True
     )
-

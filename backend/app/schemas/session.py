@@ -1,8 +1,9 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models import QueueMode
+from app.config import settings
 from app.schemas.booking import BookingPublic, SlotPublic
 
 
@@ -22,6 +23,18 @@ class SessionCreate(BaseModel):
     def validate_times(self) -> "SessionCreate":
         if self.end_time and self.start_time >= self.end_time:
             raise ValueError("Время окончания должно быть позже времени начала")
+        now = datetime.now(settings.timezone_info)
+        if self.session_date < now.date():
+            raise ValueError("Нельзя создать окно сдачи в прошлом.")
+        if self.session_date == now.date():
+            if self.end_time:
+                session_end = datetime.combine(self.session_date, self.end_time, settings.timezone_info)
+            else:
+                session_end = datetime.combine(self.session_date, self.start_time, settings.timezone_info) + timedelta(
+                    minutes=(self.max_students - 1) * (self.slot_duration_minutes + self.buffer_minutes)
+                )
+            if session_end <= now:
+                raise ValueError("Нельзя создать окно сдачи в прошлом.")
         return self
 
 
@@ -72,4 +85,3 @@ class SessionCreated(SessionPublic):
 
 class SessionManage(SessionPublic):
     admin_token: str
-

@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 
 from app.config import Settings
-from app.models import Booking
+from app.models import Booking, DefenseSession
 
 
 def book(client, created, slot, name="Арман Саркисян"):
@@ -191,13 +191,40 @@ def test_csv_export_has_fields_and_no_tokens(client, created):
     assert created["public_token"] not in response.text
 
 
-def test_past_session_is_visible_but_closed_for_booking(client, session_payload):
+def test_past_session_creation_is_rejected(client, session_payload):
     payload = {**session_payload, "session_date": (date.today() - timedelta(days=1)).isoformat()}
-    created = client.post("/api/sessions", json=payload).json()
+    response = client.post("/api/sessions", json=payload)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Нельзя создать окно сдачи в прошлом."
+
+
+def test_create_session_is_idempotent(client, session_payload, db_session):
+    headers = {"Idempotency-Key": "fix-audit-one-create"}
+    responses = [client.post("/api/sessions", json=session_payload, headers=headers) for _ in range(20)]
+    assert all(response.status_code == 201 for response in responses)
+    assert len({response.json()["admin_token"] for response in responses}) == 1
+    assert db_session.scalar(select(func.count()).select_from(DefenseSession)) == 1
+
+
+def test_closed_session_remains_visible_and_rejects_booking(client, created):
+    closed = client.patch(
+        f"/api/manage/{created['admin_token']}/session", json={"is_active": False}
+    )
+    assert closed.status_code == 200
+    assert closed.json()["is_active"] is False
     assert client.get(f"/api/sessions/{created['public_token']}").status_code == 200
     response = book(client, created, 0)
     assert response.status_code == 409
-    assert "завершено" in response.json()["detail"]
+    assert response.json()["detail"] == "Эта очередь закрыта."
+
+
+def test_capacity_reached_has_clear_message(client, session_payload):
+    payload = {**session_payload, "max_students": 1}
+    created = client.post("/api/sessions", json=payload).json()
+    assert book(client, created, 0, "Первый").status_code == 201
+    response = book(client, created, 0, "Второй")
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Свободных мест больше нет."
 
 
 def test_render_postgres_url_uses_psycopg3_driver():

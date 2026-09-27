@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,22 +21,47 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 logger = logging.getLogger("queueflow.sessions")
 
 
-@router.post("", response_model=SessionCreated, status_code=status.HTTP_201_CREATED)
-def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> SessionCreated:
-    session = DefenseSession(**payload.model_dump(), public_token=new_token(), admin_token=new_token())
-    if QueueEngine.capacity(session) < 1:
-        raise HTTPException(status_code=422, detail="В заданном интервале нет ни одного полного слота")
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-    logger.info("Session created id=%s date=%s", session.id, session.session_date)
-    public = public_payload(session, [])
+def created_payload(session: DefenseSession) -> SessionCreated:
+    public = public_payload(session)
     return SessionCreated(
         **public.model_dump(),
         admin_token=session.admin_token,
         public_path=f"/q/{session.public_token}",
         manage_path=f"/manage/{session.admin_token}",
     )
+
+
+@router.post("", response_model=SessionCreated, status_code=status.HTTP_201_CREATED)
+def create_session(
+    payload: SessionCreate,
+    db: Session = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=80),
+) -> SessionCreated:
+    if idempotency_key:
+        existing = db.scalar(select(DefenseSession).where(DefenseSession.idempotency_key == idempotency_key))
+        if existing:
+            return created_payload(existing)
+    session = DefenseSession(
+        **payload.model_dump(),
+        public_token=new_token(),
+        admin_token=new_token(),
+        idempotency_key=idempotency_key,
+    )
+    if QueueEngine.capacity(session) < 1:
+        raise HTTPException(status_code=422, detail="В заданном интервале нет ни одного полного слота")
+    db.add(session)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if idempotency_key:
+            existing = db.scalar(select(DefenseSession).where(DefenseSession.idempotency_key == idempotency_key))
+            if existing:
+                return created_payload(existing)
+        raise
+    db.refresh(session)
+    logger.info("Session created id=%s date=%s", session.id, session.session_date)
+    return created_payload(session)
 
 
 @router.get("/{public_token}", response_model=SessionPublic)
@@ -66,15 +91,17 @@ def create_booking(
         if not session:
             raise HTTPException(status_code=404, detail="Очередь не найдена или больше недоступна.")
         if not session.is_active:
-            raise HTTPException(status_code=409, detail="Запись в эту очередь закрыта")
+            raise HTTPException(status_code=409, detail="Эта очередь закрыта.")
         now = datetime.now(settings.timezone_info)
         session_end = session.end_time or QueueEngine.slot_time(session, QueueEngine.capacity(session) - 1)
         if session.session_date < now.date() or (
             session.session_date == now.date() and now.time().replace(tzinfo=None) > session_end
         ):
-            raise HTTPException(status_code=409, detail="Окно записи уже завершено")
+            raise HTTPException(status_code=409, detail="Запись на эту очередь уже завершена.")
         if payload.slot_index >= QueueEngine.capacity(session):
             raise HTTPException(status_code=422, detail="Такого слота нет")
+        if len(QueueEngine.active_bookings(db, session.id)) >= QueueEngine.capacity(session):
+            raise HTTPException(status_code=409, detail="Свободных мест больше нет.")
         duplicate = db.scalar(
             select(Booking).where(
                 Booking.session_id == session.id,
@@ -91,7 +118,7 @@ def create_booking(
             )
         )
         if occupied:
-            raise HTTPException(status_code=409, detail="Этот слот уже заняли. Выберите другой.")
+            raise HTTPException(status_code=409, detail="Этот слот только что заняли. Выберите другой.")
         scheduled_time = QueueEngine.slot_time(session, payload.slot_index)
         booking = Booking(
             session_id=session.id,
@@ -118,5 +145,5 @@ def create_booking(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=409, detail="Этот слот уже заняли. Выберите другой."
+            status_code=409, detail="Этот слот только что заняли. Выберите другой."
         ) from exc
