@@ -37,6 +37,7 @@ class Booking(Base):
     original_scheduled_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     status: Mapped[BookingStatus] = mapped_column(Enum(BookingStatus), default=BookingStatus.BOOKED)
     notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    actual_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

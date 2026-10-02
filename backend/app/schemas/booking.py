@@ -38,6 +38,7 @@ class BookingPublic(BaseModel):
     scheduled_time: time | None
     status: BookingStatus
     notes: str | None
+    actual_finished_at: datetime | None
     created_at: datetime
 
 

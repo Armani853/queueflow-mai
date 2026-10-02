@@ -31,6 +31,40 @@
   width: 100%;
 }
 
+.personal-status {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border: 1px solid rgba(36, 217, 248, .24);
+  border-radius: 999px;
+  color: var(--cyan);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+
+.personal-status-passed {
+  border-color: rgba(52, 230, 173, .3);
+  color: var(--green);
+}
+
+.self-complete-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(52, 230, 173, .28);
+  border-radius: 12px;
+  background: rgba(52, 230, 173, .07);
+  text-align: left;
+}
+
+.self-complete-box strong { color: #e8fff7; font-size: 13px; }
+.self-complete-box span { color: #84a99d; font-size: 10px; line-height: 1.5; }
+.self-complete-box .button { width: 100%; margin-top: 4px; }
+
 .resume-banner,
 .role-guide {
   display: flex;

@@ -44,6 +44,7 @@ export const api = {
     request<Booking>(`/api/sessions/${token}/bookings`, { method: 'POST', body: JSON.stringify(payload) }),
   readBooking: (token: string) => request<Booking>(`/api/bookings/${token}`),
   cancelBooking: (token: string) => request<Booking>(`/api/bookings/${token}`, { method: 'DELETE' }),
+  completeBooking: (token: string) => request<QueueSession>(`/api/bookings/${token}/complete`, { method: 'POST' }),
   updateBooking: (adminToken: string, id: number, status: BookingStatus) =>
     request<Booking>(`/api/manage/${adminToken}/bookings/${id}`, {
       method: 'PATCH',

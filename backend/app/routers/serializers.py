@@ -9,7 +9,7 @@ def build_slots(session: DefenseSession, bookings: list[Booking]) -> list[SlotPu
     return [
         SlotPublic(
             index=index,
-            time=QueueEngine.slot_time(session, index),
+            time=QueueEngine.effective_slot_time(session, index),
             available=index not in by_index and session.is_active,
             booking=BookingPublic.model_validate(by_index[index]) if index in by_index else None,
         )

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Booking, BookingStatus, DefenseSession, QueueMode
+from app.config import settings
 
 
 ACTIVE_STATUSES = {
@@ -22,6 +23,28 @@ class QueueEngine:
         base = datetime.combine(date.today(), session.start_time)
         step = session.slot_duration_minutes + session.buffer_minutes
         return (base + timedelta(minutes=slot_index * step)).time().replace(second=0, microsecond=0)
+
+    @staticmethod
+    def latest_actual_finish(session: DefenseSession) -> datetime | None:
+        finished = [booking.actual_finished_at for booking in session.bookings if booking.actual_finished_at]
+        if not finished:
+            return None
+        normalized = [
+            value if value.tzinfo else value.replace(tzinfo=settings.timezone_info)
+            for value in finished
+        ]
+        return max(normalized).astimezone(settings.timezone_info)
+
+    @classmethod
+    def effective_slot_time(cls, session: DefenseSession, slot_index: int) -> time:
+        anchor = cls.latest_actual_finish(session)
+        if not anchor:
+            return cls.slot_time(session, slot_index)
+        step = session.slot_duration_minutes + session.buffer_minutes
+        scheduled = anchor + timedelta(
+            minutes=session.buffer_minutes + slot_index * step
+        )
+        return scheduled.timetz().replace(tzinfo=None, microsecond=0)
 
     @staticmethod
     def capacity(session: DefenseSession) -> int:
@@ -46,9 +69,19 @@ class QueueEngine:
     @classmethod
     def recalculate(cls, db: Session, session: DefenseSession) -> list[Booking]:
         bookings = cls.active_bookings(db, session.id)
+        if cls.latest_actual_finish(session):
+            bookings = [
+                booking
+                for booking in bookings
+                if booking.status in {
+                    BookingStatus.BOOKED,
+                    BookingStatus.WAITING,
+                    BookingStatus.CURRENT,
+                }
+            ]
         for position, booking in enumerate(bookings, start=1):
             booking.position = position
-            booking.scheduled_time = cls.slot_time(session, booking.slot_index or 0)
+            booking.scheduled_time = cls.effective_slot_time(session, booking.slot_index or 0)
         db.flush()
         return bookings
 
@@ -95,6 +128,31 @@ class QueueEngine:
         booking.status = BookingStatus.WAITING
         booking.scheduled_time = cls.slot_time(session, target)
         cls.recalculate(db, session)
+
+    @classmethod
+    def complete_booking(
+        cls,
+        db: Session,
+        session: DefenseSession,
+        booking: Booking,
+        finished_at: datetime,
+    ) -> list[Booking]:
+        """Complete the current booking and rebase the remaining queue on server time."""
+        removed_index = booking.slot_index
+        booking.status = BookingStatus.PASSED
+        booking.actual_finished_at = finished_at
+        booking.slot_index = None
+        db.flush()
+        if removed_index is not None:
+            remaining = cls.compact_after_removal(db, session, removed_index)
+        else:
+            remaining = cls.recalculate(db, session)
+        if remaining:
+            remaining[0].status = BookingStatus.CURRENT
+            for waiting in remaining[1:]:
+                waiting.status = BookingStatus.WAITING
+        db.flush()
+        return remaining
 
     @classmethod
     def current_and_next(

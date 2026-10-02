@@ -11,6 +11,7 @@ export interface Booking {
   scheduled_time: string | null
   status: BookingStatus
   notes: string | null
+  actual_finished_at: string | null
   created_at: string
 }
 
