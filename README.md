@@ -202,13 +202,13 @@ docker compose up --build
 
 ### Render
 
-1. Создайте новый Blueprint из этого репозитория: `render.yaml` создаст web service и PostgreSQL.
-2. Запустите deploy. Docker startup автоматически выполняет `alembic upgrade head`.
-3. Проверьте `/`, `/api/health` и `/docs`, затем выполните `python pilot_check.py https://<service>.onrender.com`.
+Существующий Blueprint `queueflow` уже подключён к GitHub. После публикации проверенного коммита `main` откройте **queueflow-mai → Deploys**: Auto-Deploy обычно запустит сборку сам; если нет, выберите **Manual Deploy → Deploy latest commit**. Не создавайте новый Blueprint или PostgreSQL. Docker startup автоматически выполняет `alembic upgrade head`.
+
+После deploy проверьте `/`, `/api/health` и `/docs`, затем выполните `python pilot_check.py https://queueflow-mai.onrender.com`. Подробности и откат: `docs/RENDER_DEPLOY.md`.
 
 Для локального fallback одной командой используйте `powershell -ExecutionPolicy Bypass -File .\start_local_pilot.ps1`. Практический чек-лист пилота: `docs/PILOT_TOMORROW.md`.
 
-Аккаунт Render и публикация во внешний интернет требуют действий владельца, поэтому из локальной среды deploy не выполнялся.
+Перед ручным deploy убедитесь, что последний коммит виден в GitHub и в Render выбран именно он. **Blueprint → Manual sync** не требуется для изменения только исходного кода.
 
 ## Безопасность
 

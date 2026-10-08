@@ -2,14 +2,14 @@ from datetime import datetime
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.config import settings
 from app.models import Booking, BookingStatus, DefenseSession
-from app.routers.helpers import get_public_session
+from app.routers.helpers import begin_queue_write, get_public_session
 from app.routers.serializers import public_payload
 from app.schemas.booking import BookingConfirmation, BookingCreate
 from app.schemas.session import SessionCreate, SessionCreated, SessionPublic
@@ -85,9 +85,8 @@ def create_booking(
     public_token: str, payload: BookingCreate, db: Session = Depends(get_db)
 ) -> BookingConfirmation:
     try:
-        if db.bind and db.bind.dialect.name == "sqlite":
-            db.execute(text("BEGIN IMMEDIATE"))
-        session = db.scalar(select(DefenseSession).where(DefenseSession.public_token == public_token))
+        begin_queue_write(db)
+        session = db.scalar(select(DefenseSession).where(DefenseSession.public_token == public_token).with_for_update())
         if not session:
             raise HTTPException(status_code=404, detail="Очередь не найдена или больше недоступна.")
         if not session.is_active:

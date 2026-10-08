@@ -20,9 +20,9 @@ logger = logging.getLogger("queueflow.manage")
 
 
 def owned_booking(db: Session, admin_token: str, booking_id: int) -> tuple:
-    session = get_admin_session(db, admin_token)
+    session = get_admin_session(db, admin_token, for_write=True)
     booking = db.scalar(
-        select(Booking).where(Booking.id == booking_id, Booking.session_id == session.id)
+        select(Booking).where(Booking.id == booking_id, Booking.session_id == session.id).with_for_update()
     )
     if not booking:
         raise HTTPException(status_code=404, detail="Запись не найдена")
@@ -119,7 +119,7 @@ def move_booking(
 
 @router.post("/{admin_token}/recalculate", response_model=SessionManage)
 def recalculate(admin_token: str, db: Session = Depends(get_db)) -> SessionManage:
-    session = get_admin_session(db, admin_token)
+    session = get_admin_session(db, admin_token, for_write=True)
     QueueEngine.recalculate(db, session)
     db.commit()
     return manage_payload(session)
@@ -129,7 +129,7 @@ def recalculate(admin_token: str, db: Session = Depends(get_db)) -> SessionManag
 def update_session(
     admin_token: str, payload: SessionUpdate, db: Session = Depends(get_db)
 ) -> SessionManage:
-    session = get_admin_session(db, admin_token)
+    session = get_admin_session(db, admin_token, for_write=True)
     updates = payload.model_dump(exclude_unset=True)
     for key, value in updates.items():
         setattr(session, key, value)
@@ -146,7 +146,7 @@ def update_session(
 
 @router.delete("/{admin_token}/session", status_code=status.HTTP_204_NO_CONTENT)
 def delete_session(admin_token: str, db: Session = Depends(get_db)) -> Response:
-    session = get_admin_session(db, admin_token)
+    session = get_admin_session(db, admin_token, for_write=True)
     db.delete(session)
     db.commit()
     logger.info("Session deleted id=%s", session.id)

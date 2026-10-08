@@ -7,6 +7,7 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 frontend/test-results/
+frontend/visual-review/
 frontend/playwright-report/
 .presentation-review/
 .playwright/

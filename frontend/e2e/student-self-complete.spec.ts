@@ -12,6 +12,11 @@ function seconds(value: string) {
   return hours * 3600 + minutes * 60 + secs
 }
 
+function elapsedSeconds(from: string, to: string) {
+  // API slot times are HH:MM:SS; preserve the assertion across local midnight.
+  return (seconds(to) - seconds(from) + 86_400) % 86_400
+}
+
 test('student completes own CURRENT booking and queue advances from server time', async ({ browser, request }) => {
   const admins: string[] = []
   const created = await request.post('/api/sessions', {
@@ -58,7 +63,8 @@ test('student completes own CURRENT booking and queue advances from server time'
     })
 
     await expect(student.getByRole('status')).toHaveText('Готово. Очередь обновлена.')
-    await expect(student.getByRole('button', { name: 'Сдано' })).toBeDisabled()
+    await expect(student.getByRole('heading', { name: 'Вы сдали' })).toBeVisible()
+    await expect(student.getByRole('button', { name: 'Я сдал', exact: true })).toHaveCount(0)
     expect(completeRequests).toBe(1)
 
     await expect(teacher.locator('.current-card')).toContainText('Мария')
@@ -75,9 +81,9 @@ test('student completes own CURRENT booking and queue advances from server time'
     expect(ivan.actual_finished_at).toBeTruthy()
     expect(maria.status).toBe('CURRENT')
     const finishedTime = ivan.actual_finished_at.split('T')[1]
-    expect(seconds(maria.scheduled_time) - seconds(finishedTime)).toBe(120)
-    expect(seconds(arman.scheduled_time) - seconds(maria.scheduled_time)).toBe(720)
-    expect(seconds(anna.scheduled_time) - seconds(arman.scheduled_time)).toBe(720)
+    expect(elapsedSeconds(finishedTime, maria.scheduled_time)).toBe(120)
+    expect(elapsedSeconds(maria.scheduled_time, arman.scheduled_time)).toBe(720)
+    expect(elapsedSeconds(arman.scheduled_time, anna.scheduled_time)).toBe(720)
 
     const repeated = await Promise.all([
       request.post(`/api/bookings/${entries[0].booking_token}/complete`),

@@ -134,7 +134,7 @@ test('complete QueueFlow demo scenario', async ({ page, request, context, browse
   await expect(teacherPage.getByText(/Race (One|Two)/)).toBeVisible()
   await teacherPage.screenshot({ path: `${screenshotDir}/teacher-with-bookings.png`, fullPage: true })
   await studentPage.reload()
-  await expect(studentPage.getByRole('heading', { name: 'Вы записаны' })).toBeVisible()
+  await expect(studentPage.getByRole('heading', { name: 'Вы сдали' })).toBeVisible()
   const cleanup = await request.delete(`/api/manage/${teacherHref!.split('/').pop()}/session`)
   expect(cleanup.status()).toBe(204)
 })

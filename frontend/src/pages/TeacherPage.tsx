@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlarmClock, CalendarDays, Check, Clock3, Download, MapPin, PauseCircle, Play, QrCode, RefreshCw, Settings2, ShieldCheck, UsersRound, X } from 'lucide-react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { AlarmClock, CalendarDays, Check, Clock3, Download, MapPin, PauseCircle, Play, QrCode, RefreshCw, SearchX, Settings2, ShieldCheck, UsersRound, X } from 'lucide-react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { Layout } from '../components/Layout'
 import { QueueList } from '../components/QueueList'
 import { QrShare } from '../components/QrShare'
 import { CopyButton } from '../components/CopyButton'
 import { queueCode, rememberManagedSession } from '../lib/teacherSession'
+import { useDialogKeyboard } from '../lib/useDialogKeyboard'
 import type { Booking, BookingStatus, QueueSession } from '../types'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -27,6 +28,7 @@ export function TeacherPage() {
   const [showFinish, setShowFinish] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [networkError, setNetworkError] = useState(false)
+  useDialogKeyboard(!!session && (showShare || !!cancelTarget || showFinish), () => { setShowShare(false); setCancelTarget(null); if (!finishing) setShowFinish(false) })
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -105,8 +107,8 @@ export function TeacherPage() {
     }
   }
 
-  if (loading) return <Layout><div className="page-loading"><span className="spinner" /><strong>Сервис запускается</strong><span>На бесплатном сервере первая загрузка может занять до минуты.</span></div></Layout>
-  if (!session) return <Layout><div className="not-found"><ShieldCheck size={42} /><h1>{networkError ? 'Сервер пока не ответил' : 'Панель не найдена'}</h1><p>{networkError ? 'Сервис может запускаться до минуты. Повторите попытку.' : error || 'Проверьте секретную ссылку.'}</p>{networkError && <button className="button button-primary" onClick={() => { setLoading(true); void load() }}><RefreshCw size={17} /> Повторить</button>}</div></Layout>
+  if (loading) return <Layout><div className="page-loading"><span className="spinner" /><strong>Подключаемся к серверу</strong><span>Первый ответ иногда занимает до минуты. Если соединение не удастся, появится кнопка повтора.</span></div></Layout>
+  if (!session) return <Layout><div className="not-found"><SearchX size={42} /><span className="eyebrow">Не удалось открыть панель</span><h1>{networkError ? 'Сервер пока не ответил' : 'Панель не найдена'}</h1><p>{networkError ? 'Сервис может запускаться до минуты. Повторите попытку.' : 'Проверьте секретную ссылку управления.'}</p><div className="button-row">{networkError && <button className="button button-primary" onClick={() => { setLoading(true); void load() }}><RefreshCw size={17} /> Повторить</button>}<Link className="button button-secondary" to="/">На главную</Link></div></div></Layout>
 
   const remaining = session.bookings.filter((booking) => ['BOOKED', 'WAITING', 'CURRENT'].includes(booking.status)).length
 
@@ -114,36 +116,37 @@ export function TeacherPage() {
     <Layout wide>
       <section className="dashboard-heading">
         <div><span className="eyebrow"><ShieldCheck size={14} /> Панель преподавателя</span><span className="queue-identity">Очередь {queueCode(session.public_token)}</span><h1>{session.title}</h1><p>{session.subject}</p></div>
-        <div className="dashboard-buttons"><button className="button button-primary" onClick={() => setShowShare(true)}><QrCode size={17} /> Поделиться студентам</button><a className="button button-secondary" href={`/api/manage/${token}/export.csv`} download><Download size={17} /> CSV</a><button className="button button-secondary" onClick={() => setShowSettings(!showSettings)}><Settings2 size={17} /> Настройки</button>{session.is_active && <button className="button button-danger-text finish-button" onClick={() => setShowFinish(true)}><PauseCircle size={17} /> Завершить очередь</button>}</div>
+        <div className="dashboard-buttons"><button className="button button-primary" onClick={() => setShowShare(true)}><QrCode size={17} /> Поделиться студентам</button></div>
       </section>
       {!session.is_active && <div className="closed-banner"><PauseCircle size={18} /><span><strong>Очередь завершена</strong> Студенты больше не могут записываться. Итоговый список сохранён.</span></div>}
       <section className="now-grid">
         <div className="now-card current-card">
           <span className="now-label"><span className="pulse-dot" /> Сейчас сдаёт</span>
-          {session.current ? <><div className="now-time">{session.current.scheduled_time?.slice(0, 5)}</div><h2>{session.current.student_name}</h2><p>{session.current.group_name} · {session.current.lab_name}</p>{session.is_active && <button className="button button-success" onClick={() => changeStatus(session.current!, 'PASSED')}><Check size={17} /> Отметить «Сдал»</button>}</> : <><div className="now-empty"><PauseCircle /><h2>Сдача не начата</h2><p>{session.is_active ? 'Выберите студента в очереди и нажмите «Начать»' : 'Очередь завершена'}</p></div></>}
+          {session.current ? <><div className="now-time">{session.current.scheduled_time?.slice(0, 5)}</div><h2>{session.current.student_name}</h2><p>{session.current.group_name} · {session.current.lab_name}</p>{session.is_active && <button className="button button-success" onClick={() => changeStatus(session.current!, 'PASSED')}><Check size={17} /> Отметить «Сдал»</button>}</> : <><div className="now-empty"><PauseCircle /><h2>{!session.is_active ? 'Очередь завершена' : remaining === 0 && session.bookings.length > 0 ? 'Все записи обработаны' : 'Сдача не начата'}</h2><p>{!session.is_active ? 'Итоговый список доступен ниже' : remaining === 0 && session.bookings.length > 0 ? 'Новых ожидающих студентов нет' : 'Выберите студента в очереди и нажмите «Начать»'}</p></div></>}
         </div>
         <div className="now-card next-card">
           <span className="now-label">Следующий</span>
           {session.next_booking ? <><div className="next-time">{session.next_booking.scheduled_time?.slice(0, 5)}</div><h2>{session.next_booking.student_name}</h2><p>{session.next_booking.group_name} · {session.next_booking.lab_name}</p></> : <div className="now-empty"><Check /><h2>Никого нет</h2><p>Очередь закончилась или ещё пуста</p></div>}
         </div>
       </section>
+      <div className="dashboard-tools"><a className="button button-secondary" href={`/api/manage/${token}/export.csv`} download><Download size={17} /> Скачать CSV</a><button className="button button-secondary" onClick={() => setShowSettings(!showSettings)}><Settings2 size={17} /> Настройки</button>{session.is_active && <button className="button button-danger-text finish-button" onClick={() => setShowFinish(true)}><PauseCircle size={17} /> Завершить очередь</button>}</div>
       <section className="stat-grid">
         <div className="stat-card"><CalendarDays /><span>Дата<strong>{dateFormatter.format(new Date(`${session.session_date}T00:00:00`))}</strong></span></div>
         <div className="stat-card"><MapPin /><span>Аудитория<strong>{session.room}</strong></span></div>
         <div className="stat-card"><UsersRound /><span>Записано<strong>{session.bookings.length} / {session.max_students}</strong></span></div>
         <div className="stat-card"><Clock3 /><span>Ожидают сдачи<strong>{remaining} студентов</strong></span></div>
       </section>
-      <section className="role-guide panel">
+      {session.bookings.length > 0 && <section className="role-guide panel">
         <div><strong>{session.is_active ? 'Вы управляете очередью' : 'Ссылка на завершённую очередь'}</strong><span>{session.is_active ? 'Студентам отправьте эту ссылку. Все записи из неё появляются ниже автоматически.' : 'По этой ссылке студенты могут посмотреть итоговый список, но не записаться.'}</span><code>{`${window.location.origin}/q/${session.public_token}`}</code></div>
         <CopyButton value={`${window.location.origin}/q/${session.public_token}`} label="Копировать ссылку студентам" />
-      </section>
+      </section>}
       {error && <div className="error-banner">{error}</div>}
       {showSettings && <SettingsPanel session={session} token={token} onSaved={() => { setShowSettings(false); void load() }} onError={setError} />}
       <section className="panel dashboard-queue">
         <div className="section-title"><div><span>Live-режим</span><h2>Очередь на сдачу</h2></div><div className="queue-meta">{updated && <span className="update-toast"><RefreshCw size={14} /> Обновлено</span>}<span>Шаг {session.slot_duration_minutes + session.buffer_minutes} мин</span></div></div>
         <div className="live-line"><span><span className="pulse-dot" /> Онлайн · обновлено {lastUpdated ? 'только что' : 'при загрузке'}</span><small>Проверяем каждые 2 секунды — обновлять страницу не нужно.</small></div>
         {newBooking && <div className="new-booking-note">{newBooking}</div>}
-        {session.bookings.length === 0 ? <div className="teacher-empty"><UsersRound size={38} /><h3>{session.is_active ? 'Очередь пока пуста' : 'В очереди не было записей'}</h3>{session.is_active && <><p>Отправьте студентам эту ссылку:</p><code>{`${window.location.origin}/q/${session.public_token}`}</code><div className="button-row"><CopyButton value={`${window.location.origin}/q/${session.public_token}`} label="Копировать ссылку" /><button className="button button-secondary" onClick={() => setShowShare(true)}><QrCode size={17} /> Показать QR</button></div><small><span className="pulse-dot" /> Как только студент запишется, он автоматически появится здесь.</small></>}</div> : <QueueList bookings={session.bookings} actions={session.is_active ? (booking) => <BookingActions booking={booking} busy={busyId === booking.id} onStatus={(status) => status === 'CANCELLED' ? setCancelTarget(booking) : changeStatus(booking, status)} onMove={() => move(booking)} /> : undefined} />}
+        {session.bookings.length === 0 ? <div className="teacher-empty"><UsersRound size={38} /><span className="empty-role">Вы управляете очередью</span><h3>{session.is_active ? 'Очередь пока пуста' : 'В очереди не было записей'}</h3>{session.is_active && <><p>Отправьте студентам эту ссылку:</p><code>{`${window.location.origin}/q/${session.public_token}`}</code><div className="button-row"><CopyButton value={`${window.location.origin}/q/${session.public_token}`} label="Копировать ссылку" /><button className="button button-secondary" onClick={() => setShowShare(true)}><QrCode size={17} /> Показать QR</button></div><small><span className="pulse-dot" /> Как только студент запишется, он автоматически появится здесь.</small></>}</div> : <QueueList bookings={session.bookings} actions={session.is_active ? (booking) => <BookingActions booking={booking} busy={busyId === booking.id} onStatus={(status) => status === 'CANCELLED' ? setCancelTarget(booking) : changeStatus(booking, status)} onMove={() => move(booking)} /> : undefined} />}
       </section>
       {showShare && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowShare(false)}><div className="modal panel share-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setShowShare(false)}><X /></button><span className="eyebrow"><QrCode size={14} /> Студентам отправить</span><h2>Очередь {queueCode(session.public_token)}</h2><p>Все студенты по этой ссылке видят одну и ту же актуальную очередь.</p><div className="url-box">{`${window.location.origin}/q/${session.public_token}`}</div><QrShare publicPath={`/q/${session.public_token}`} size={180} /><div className="secret-reminder"><ShieldCheck size={16} /> Секретную ссылку /manage оставьте только себе.</div></div></div>}
       {cancelTarget && <div className="modal-backdrop"><div className="modal panel confirm-modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={() => setCancelTarget(null)}><X /></button><h2>Отменить запись {cancelTarget.student_name}?</h2><p>После отмены следующие студенты будут автоматически сдвинуты вперёд.</p><div className="button-row"><button className="button button-secondary" onClick={() => setCancelTarget(null)}>Назад</button><button className="button button-danger-text" onClick={() => { const booking = cancelTarget; setCancelTarget(null); void changeStatus(booking, 'CANCELLED') }}>Отменить запись</button></div></div></div>}
@@ -156,6 +159,7 @@ function BookingActions({ booking, busy, onStatus, onMove }: { booking: Booking;
   if (busy) return <span className="spinner" />
   if (booking.status === 'LATE') return <button className="mini-button move" title="В ближайший свободный слот" onClick={onMove}><RefreshCw /> Перенести</button>
   if (booking.status === 'PASSED') return <span className="completed-label"><Check /> Готово</span>
+  if (booking.status === 'CANCELLED') return <span className="completed-label">Отменено</span>
   return <div className="action-group"><button className="mini-button start" title="Начать сдачу" onClick={() => onStatus('CURRENT')}><Play /> Начать</button><button className="mini-button late" title="Опоздал" onClick={() => onStatus('LATE')}><AlarmClock /> Опоздал</button><button className="mini-button cancel" title="Отменить" onClick={() => onStatus('CANCELLED')}><X /> Отменить</button></div>
 }
 
