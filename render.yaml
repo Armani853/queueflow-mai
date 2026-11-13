@@ -1,3 +1,6 @@
+# Keep the database declaration until the original resource and data are verified.
+# A Blueprint sync can recreate a missing resource, but a new Free database is empty
+# and expires after 30 days; migrate to durable PostgreSQL before relying on it.
 databases:
   - name: queueflow-db
     plan: free
