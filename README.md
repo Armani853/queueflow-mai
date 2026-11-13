@@ -198,11 +198,11 @@ DATABASE_URL=postgresql+psycopg://queueflow:password@host:5432/queueflow
 docker compose up --build
 ```
 
-Контейнер собирает React, применяет Alembic migration и запускает FastAPI на порту 8000.
+Контейнер собирает React, проверяет доступность базы (не более пяти попыток за 30 секунд), применяет Alembic migration и запускает FastAPI на порту 8000. Постоянная ошибка подключения останавливает запуск; проверка не заменяет восстановление базы.
 
 ### Render
 
-Существующий Blueprint `queueflow` уже подключён к GitHub. После публикации проверенного коммита `main` откройте **queueflow-mai → Deploys**: Auto-Deploy обычно запустит сборку сам; если нет, выберите **Manual Deploy → Deploy latest commit**. Не создавайте новый Blueprint или PostgreSQL. Docker startup автоматически выполняет `alembic upgrade head`.
+Существующий Blueprint `queueflow` подключён к GitHub. Его `render.yaml` содержит бесплатную PostgreSQL Render. По [правилам Render](https://render.com/docs/free) такая база истекает через 30 дней; эта конфигурация не подходит для длительного хранения данных. Перед новым deploy проверьте статус исходной базы и возможность экспорта. Не заменяйте `DATABASE_URL` пустой базой, пока судьба прежних данных не установлена. Для длительной эксплуатации подключите постоянную PostgreSQL с резервным копированием; бесплатный тариф сам по себе не гарантирует сохранность данных.
 
 После deploy проверьте `/`, `/api/health` и `/docs`, затем выполните `python pilot_check.py https://queueflow-mai.onrender.com`. Подробности и откат: `docs/RENDER_DEPLOY.md`.
 

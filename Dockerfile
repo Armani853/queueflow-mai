@@ -13,4 +13,4 @@ COPY backend/ ./backend/
 COPY --from=frontend /build/frontend/dist ./frontend/dist
 WORKDIR /app/backend
 ENV PYTHONUNBUFFERED=1
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
+CMD ["sh", "-c", "python -m app.wait_for_database && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
